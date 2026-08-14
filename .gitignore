@@ -54,3 +54,5 @@ node_modules/
 /*.pdf
 /*.gif
 /*.docx
+/screenshots
+.claude
