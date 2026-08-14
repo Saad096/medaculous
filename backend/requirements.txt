@@ -1,0 +1,30 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+passlib==1.7.4
+# Pinned below 4.1: passlib 1.7.4's backend self-test breaks on bcrypt>=4.1
+# (bcrypt dropped the `__about__` attribute passlib probes for).
+bcrypt==4.0.1
+pyjwt==2.10.1
+python-multipart==0.0.20
+email-validator==2.2.0
+httpx==0.28.1
+google-auth==2.37.0
+anthropic==0.42.0
+azure-search-documents==11.5.2
+azure-core==1.32.0
+azure-communication-email==1.0.0
+# Required by azure-core's async transport (SearchIndexClient/SearchClient's
+# `.aio` variants) — not pulled in automatically as a hard dependency.
+aiohttp==3.11.11
+apscheduler==3.11.0
+python-dotenv==1.0.1
+pypdf==6.15.0
+
+# dev/test only
+pytest==8.3.4
+pytest-asyncio==0.25.0

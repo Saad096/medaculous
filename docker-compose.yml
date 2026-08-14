@@ -1,0 +1,46 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    # Postgres always runs as a system service — never in a container — but
+    # the literal string "localhost" inside a container never means "the
+    # real machine" on Docker Desktop (macOS/Windows, or Linux dev boxes
+    # with Desktop installed instead of a bare Docker Engine), and
+    # network_mode: host only reaches Desktop's internal VM, not your
+    # actual machine. "host.docker.internal" is the one hostname Docker
+    # resolves to the real host on every platform (Desktop AND native Linux
+    # Engine, via extra_hosts below) — so this overrides just the host
+    # portion of DATABASE_URL, keeping the same user/password/db name you
+    # already set in .env. If you change those in .env, update this line
+    # to match.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://saad:123@host.docker.internal:5432/medaculous
+    ports:
+      - "8000:8000"
+    # Uploaded PDFs and avatars (PDF_STORAGE_DIR / AVATAR_STORAGE_DIR) live
+    # under here — without this volume they'd sit only in the container's
+    # writable layer and vanish on every `docker compose up --build`.
+    volumes:
+      - backend_data:/app/data
+    # Applies pending Alembic migrations before every start — creates the
+    # schema automatically the first time this runs against a fresh
+    # database, and is a no-op on every later restart once already at head.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: unless-stopped
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@medaculous.local
+      PGADMIN_DEFAULT_PASSWORD: medaculous
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "5050:80"
+
+volumes:
+  backend_data:

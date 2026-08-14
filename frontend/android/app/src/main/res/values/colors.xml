@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand navy used by the native launch screen (matches AppColors.brandNavy). -->
+    <color name="launch_background_navy">#0D0E1A</color>
+	<color name="ic_launcher_background">#07041F</color>
+</resources>

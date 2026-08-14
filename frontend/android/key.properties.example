@@ -1,0 +1,10 @@
+# Copy this file to key.properties (same folder) and fill in real values — see
+# README.md "Building a signed release for the Play Store" for how to generate the
+# keystore itself. key.properties and the .jks/.keystore file it points at are both
+# gitignored — never commit either one; losing this keystore means you can never again
+# publish an update to an app already live on the Play Store under the same listing.
+
+storeFile=/absolute/path/to/medaculous-release.jks
+storePassword=CHANGE_ME
+keyAlias=medaculous
+keyPassword=CHANGE_ME

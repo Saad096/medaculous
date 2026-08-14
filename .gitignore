@@ -1,0 +1,56 @@
+# --- Secrets — never commit these ---
+backend/.env
+backend/.env.*
+!backend/.env.example
+.env
+.env.*
+!.env.example
+
+# --- Backend (Python) ---
+backend/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+backend/data/pdfs/
+backend/data/avatars/
+
+# --- Frontend (Flutter/Dart) ---
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins
+frontend/.flutter-plugins-dependencies
+frontend/.packages
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/local.properties
+frontend/android/key.properties
+frontend/*.jks
+frontend/*.keystore
+frontend/android/*.jks
+frontend/android/*.keystore
+frontend/ios/Pods/
+frontend/ios/.symlinks/
+frontend/ios/Flutter/Flutter.framework
+frontend/ios/Flutter/Flutter.podspec
+frontend/*.iml
+frontend/.idea/
+
+# --- Node (only relevant if the archived legacy app is ever restored) ---
+node_modules/
+
+# --- Editors / OS noise ---
+.vscode/
+.idea/
+*.iml
+.DS_Store
+
+# --- Local session tooling ---
+.claude/
+
+# --- Large one-off reference material (client-supplied deliverables, not source) ---
+# Kept on disk for reference but excluded so clones/diffs stay fast — see README.md.
+/screenshots/
+/*.pdf
+/*.gif
+/*.docx

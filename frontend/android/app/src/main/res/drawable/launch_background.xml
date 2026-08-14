@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Branded native launch screen: brand-navy backdrop with the centered
+     Medaculous logo, so the first frame the user ever sees is on-brand
+     instead of a stark white flash (owner feedback, 2026-08-13). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/launch_background_navy" />
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@mipmap/launch_logo" />
+    </item>
+</layer-list>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allows plain HTTP only to localhost/10.0.2.2 (adb reverse / Android emulator
+  loopback to the dev backend). Every other domain — including production —
+  still requires HTTPS via the platform default, matching master spec §5
+  ("no plain HTTP in prod"). This exception never applies in production
+  because prod points at a real HTTPS domain, not localhost.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
