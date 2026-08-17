@@ -55,6 +55,19 @@ async def generate_text(
     max_tokens: int = 2048,
 ) -> str:
     """One-shot, non-streaming completion. Use for symptom checker / drug recommendation calls."""
+    text, _ = await _generate_text_with_stop_reason(
+        system=system, user_message=user_message, tier=tier, max_tokens=max_tokens
+    )
+    return text
+
+
+async def _generate_text_with_stop_reason(
+    *,
+    system: str,
+    user_message: str,
+    tier: ModelTier = ModelTier.SONNET,
+    max_tokens: int = 2048,
+) -> tuple[str, str]:
     client = get_client()
     response = await client.messages.create(
         model=_TIER_TO_MODEL[tier],
@@ -62,7 +75,8 @@ async def generate_text(
         system=system,
         messages=[{"role": "user", "content": user_message}],
     )
-    return "".join(block.text for block in response.content if block.type == "text")
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return text, response.stop_reason
 
 
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
@@ -94,19 +108,34 @@ async def generate_json(
     """One-shot completion constrained to a single JSON object.
 
     Claude has no Gemini-style responseSchema, so the schema is described in
-    the prompt and enforced by asking for JSON-only output; one retry with a
-    stricter reminder covers the rare case of stray prose or code fences
-    before giving up (LLMJsonError bubbles up to a 502 per master spec's
-    "transparent UI states" — never silently return a wrong shape).
+    the prompt and enforced by asking for JSON-only output. The retry adapts
+    to *why* the first attempt failed, found live in production (2026-08-17
+    — the same broad multi-symptom pharmacy query 502'd intermittently even
+    after bumping its base max_tokens):
+    - stop_reason == "max_tokens" means the response was genuinely cut off
+      mid-object — retrying with the same budget and a "please be careful"
+      nudge just truncates at the exact same point again. Retry with a much
+      larger budget instead.
+    - Any other parse failure (stray prose, code fences) is a formatting
+      issue the nudge actually addresses, so that retry path is unchanged.
+    LLMJsonError bubbles up to a 502 per master spec's "transparent UI
+    states" — never silently return a wrong shape.
     """
     json_system = f"{system}\n\nRespond with ONLY a single valid JSON object. No prose, no markdown code fences."
+    current_max_tokens = max_tokens
+    raw = ""
     for attempt in range(2):
-        raw = await generate_text(system=json_system, user_message=user_message, tier=tier, max_tokens=max_tokens)
+        raw, stop_reason = await _generate_text_with_stop_reason(
+            system=json_system, user_message=user_message, tier=tier, max_tokens=current_max_tokens
+        )
         try:
             return _parse_json_response(raw)
         except (json.JSONDecodeError, ValueError):
             if attempt == 0:
-                json_system += "\n\nYour previous response was not valid JSON. Return ONLY the JSON object, nothing else."
+                if stop_reason == "max_tokens":
+                    current_max_tokens = min(current_max_tokens * 2, 64000)
+                else:
+                    json_system += "\n\nYour previous response was not valid JSON. Return ONLY the JSON object, nothing else."
                 continue
     raise LLMJsonError(f"Model did not return valid JSON after retry: {raw[:500]!r}")
 
