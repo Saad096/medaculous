@@ -24,6 +24,8 @@ class DiseaseListScreen extends ConsumerStatefulWidget {
 
 class _DiseaseListScreenState extends ConsumerState<DiseaseListScreen> {
   late Future<List<DiseaseSummary>> _diseasesFuture;
+  final _searchController = TextEditingController();
+  String _query = '';
 
   @override
   void initState() {
@@ -31,6 +33,12 @@ class _DiseaseListScreenState extends ConsumerState<DiseaseListScreen> {
     _diseasesFuture = ref
         .read(systemsApiProvider)
         .listDiseases(widget.systemId);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -61,52 +69,106 @@ class _DiseaseListScreenState extends ConsumerState<DiseaseListScreen> {
             );
           }
 
+          // Client feedback, 2026-08-17: live keyword filter, updates the
+          // list below as the user types — no submit button needed.
+          final query = _query.trim().toLowerCase();
+          final filtered = query.isEmpty
+              ? diseases
+              : diseases.where((d) => d.name.toLowerCase().contains(query)).toList();
+
           final byCategory = <String, List<DiseaseSummary>>{};
-          for (final disease in diseases) {
+          for (final disease in filtered) {
             byCategory.putIfAbsent(disease.category, () => []).add(disease);
           }
           final categories = byCategory.keys.toList();
 
-          return ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            itemCount: categories.length,
-            itemBuilder: (context, index) {
-              final category = categories[index];
-              final items = byCategory[category]!;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.md,
-                      AppSpacing.md,
-                      AppSpacing.md,
-                      AppSpacing.xs,
-                    ),
-                    child: Text(
-                      category,
-                      style: AppTextStyles.caption.copyWith(
-                        color: context.secondaryText,
-                      ),
-                    ),
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, 0),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: InputDecoration(
+                    hintText: 'Search conditions in ${widget.systemName ?? "this system"}',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _query = '');
+                            },
+                          ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadii.pill)),
+                    filled: true,
                   ),
-                  for (final disease in items)
-                    ListTile(
-                      title: Text(disease.name, style: AppTextStyles.body),
-                      trailing: const Icon(
-                        Icons.chevron_right_rounded,
-                        color: AppColors.slate400,
+                ),
+              ),
+              Expanded(
+                child: categories.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No conditions match "$query".',
+                          style: AppTextStyles.body.copyWith(color: AppColors.slate400),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        itemCount: categories.length,
+                        itemBuilder: (context, index) {
+                          final category = categories[index];
+                          final items = byCategory[category]!;
+                          return _CategoryGroup(category: category, diseases: items);
+                        },
                       ),
-                      onTap: () => context.push(
-                        '/diseases/${disease.id}',
-                        extra: disease.name,
-                      ),
-                    ),
-                ],
-              );
-            },
+              ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Each category rendered as a light, rounded card — owner feedback,
+/// 2026-08-17: the flat plain-text grouping should have "a light boxes
+/// feel" instead.
+class _CategoryGroup extends StatelessWidget {
+  const _CategoryGroup({required this.category, required this.diseases});
+
+  final String category;
+  final List<DiseaseSummary> diseases;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.slate800 : AppColors.slate50,
+        borderRadius: BorderRadius.circular(AppSpacing.lg),
+        border: Border.all(color: isDark ? AppColors.slate700 : AppColors.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.xs),
+            child: Text(
+              category,
+              style: AppTextStyles.micro.copyWith(color: context.secondaryText, fontWeight: FontWeight.w700),
+            ),
+          ),
+          for (final disease in diseases)
+            ListTile(
+              title: Text(disease.name, style: AppTextStyles.body),
+              trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.slate400),
+              onTap: () => context.push('/diseases/${disease.id}', extra: disease.name),
+            ),
+          const SizedBox(height: AppSpacing.xs),
+        ],
       ),
     );
   }

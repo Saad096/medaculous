@@ -379,7 +379,7 @@ def _topic_out_dict(topic: ExamTopic, meta: ExamTopicMeta | None) -> dict:
         "key": topic.key,
         "title": topic.title,
         "estimated_minutes": topic.estimated_minutes,
-        "difficulty": topic.difficulty,
+        "difficulty": meta.difficulty if meta else topic.difficulty,
         "high_yield": topic.high_yield,
         "learning_objectives": topic.learning_objectives,
         "suggested_resources": topic.suggested_resources,
@@ -441,6 +441,8 @@ async def update_topic_meta(
         meta.checklists = payload.checklists
     if payload.is_bookmarked is not None:
         meta.is_bookmarked = payload.is_bookmarked
+    if payload.difficulty is not None:
+        meta.difficulty = payload.difficulty
     await db.commit()
     await db.refresh(meta)
     return _topic_out_dict(topic, meta)

@@ -81,7 +81,7 @@ class _DiseaseNotesSectionState extends ConsumerState<DiseaseNotesSection> {
     if (!mounted) return;
     await context.push(
       '/notes/editor',
-      extra: {'folderId': folderId, 'folderBreadcrumb': widget.folderName},
+      extra: {'folderId': folderId, 'folderBreadcrumb': widget.folderName, 'autoFocus': true},
     );
     _load();
   }

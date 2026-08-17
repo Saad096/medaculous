@@ -138,6 +138,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               note: extra['note'] as Note?,
               initialFolderId: extra['folderId'] as String?,
               folderBreadcrumb: extra['folderBreadcrumb'] as String?,
+              autoFocus: extra['autoFocus'] as bool? ?? false,
             );
           }
           return NoteEditorScreen(note: extra as Note?);

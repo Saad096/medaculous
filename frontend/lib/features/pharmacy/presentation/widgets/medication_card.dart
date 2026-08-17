@@ -145,10 +145,15 @@ class _MedicationCardState extends State<MedicationCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: AppSpacing.sm,
+                          runSpacing: 2,
                           children: [
-                            Text('${ref.guideline} (${ref.year})', style: AppTextStyles.caption.copyWith(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                            Text(
+                              '${ref.guideline} (${ref.year})',
+                              style: AppTextStyles.caption.copyWith(color: AppColors.primary, fontWeight: FontWeight.w700),
+                            ),
                             Text('Evidence: ${ref.evidenceLevel}', style: AppTextStyles.micro.copyWith(color: context.secondaryText)),
                           ],
                         ),

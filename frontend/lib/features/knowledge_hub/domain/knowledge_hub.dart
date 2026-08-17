@@ -43,11 +43,12 @@ class PdfDocument {
   final String? author;
   final String? contentPreview;
 
-  /// What to actually show as the document's name — most PDFs' embedded
-  /// title metadata is missing or junk (e.g. "Microsoft Word - doc1"), so
-  /// only prefer it when it looks like a real title.
-  String get displayTitle =>
-      (title != null && title!.trim().length > 3) ? title! : filename;
+  /// Always the real filename — owner feedback, 2026-08-17: preferring the
+  /// PDF's own embedded title metadata showed junk placeholder values (e.g.
+  /// "Anonymous", left behind by whatever tool created the file) instead of
+  /// the name the user actually uploaded and recognizes. The embedded
+  /// [title] is still shown as supplementary info in the details sheet.
+  String get displayTitle => filename;
 
   factory PdfDocument.fromJson(Map<String, dynamic> json) => PdfDocument(
     id: json['id'] as String,

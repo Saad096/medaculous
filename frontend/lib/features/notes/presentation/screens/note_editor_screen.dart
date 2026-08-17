@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -7,6 +6,7 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/sketch_screen.dart';
 import '../../domain/note.dart';
@@ -18,14 +18,17 @@ import '../widgets/data_uri_image_embed_builder.dart';
 /// Delta JSON into the existing `contentHtml` string column (see
 /// NoteContentCodec) — no backend change needed, it's an opaque string.
 ///
-/// Autosaves on a short debounce after each edit rather than requiring an
-/// explicit save action, same as before.
+/// Explicit save via the checkmark in the app bar — owner feedback,
+/// 2026-08-17: autosave-on-every-keystroke made it impossible to leave
+/// without something already being written, and gave no clear "this is
+/// saved" moment. Leaving with unsaved changes prompts first.
 class NoteEditorScreen extends ConsumerStatefulWidget {
   const NoteEditorScreen({
     super.key,
     this.note,
     this.initialFolderId,
     this.folderBreadcrumb,
+    this.autoFocus = false,
   });
 
   final Note? note;
@@ -39,6 +42,12 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
   /// from a disease topic, mirroring the reference UI's folder breadcrumb.
   final String? folderBreadcrumb;
 
+  /// Focuses the body straight away — used when this screen opens as the
+  /// *only* affordance for adding a note (e.g. a disease's Notes tab), so
+  /// the user can start typing immediately instead of tapping an "Add
+  /// note" button first (owner feedback, 2026-08-17).
+  final bool autoFocus;
+
   @override
   ConsumerState<NoteEditorScreen> createState() => _NoteEditorScreenState();
 }
@@ -51,9 +60,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   String? _noteId;
   String? _folderId;
-  Timer? _debounce;
   bool _isSaving = false;
-  StreamSubscription<void>? _changesSub;
+  bool _dirty = false;
+  bool _toolbarExpanded = false;
 
   @override
   void initState() {
@@ -67,13 +76,16 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       document: document,
       selection: const TextSelection.collapsed(offset: 0),
     );
-    _changesSub = _quillController.changes.listen((_) => _scheduleSave());
+    _quillController.changes.listen((_) => _markDirty());
+    _titleController.addListener(_markDirty);
+
+    if (widget.autoFocus) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _editorFocusNode.requestFocus());
+    }
   }
 
   @override
   void dispose() {
-    _debounce?.cancel();
-    _changesSub?.cancel();
     _titleController.dispose();
     _quillController.dispose();
     _editorFocusNode.dispose();
@@ -81,9 +93,8 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     super.dispose();
   }
 
-  void _scheduleSave() {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 600), _save);
+  void _markDirty() {
+    if (!_dirty) setState(() => _dirty = true);
   }
 
   Future<void> _save() async {
@@ -103,12 +114,48 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     } else {
       await api.updateNote(_noteId!, title: title, contentHtml: content);
     }
-    if (mounted) setState(() => _isSaving = false);
+    if (mounted) {
+      setState(() {
+        _isSaving = false;
+        _dirty = false;
+      });
+    }
   }
 
   Future<void> _handleBack() async {
-    _debounce?.cancel();
-    await _save();
+    if (!_dirty) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    final choice = await showDialog<String>(
+      context: context,
+      // Tapping outside just closes the dialog and stays on the editor —
+      // owner feedback, 2026-08-17: "if user click on somewhere else the
+      // card must be removed automatically", i.e. treat it as cancel.
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.edit_note_rounded, color: AppColors.primary, size: 32),
+        title: const Text('Save this note?'),
+        content: const Text(
+          "You've written something here. Leaving now without saving means it won't be kept.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('discard'),
+            child: Text('Discard', style: TextStyle(color: AppColors.danger)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('cancel'),
+            child: const Text('Keep Editing'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop('save'),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null || choice == 'cancel') return;
+    if (choice == 'save') await _save();
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -171,7 +218,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       BlockEmbed.image(dataUri),
       TextSelection.collapsed(offset: index + 1),
     );
-    _scheduleSave();
+    _markDirty();
   }
 
   String _mimeTypeFor(String path) {
@@ -204,7 +251,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
           actions: [
             if (_isSaving)
               const Padding(
-                padding: EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                padding: EdgeInsets.symmetric(horizontal: AppSpacing.md),
                 child: Center(
                   child: SizedBox(
                     width: 16,
@@ -212,52 +259,66 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 ),
+              )
+            else
+              IconButton(
+                icon: Icon(
+                  Icons.check_rounded,
+                  color: _dirty ? AppColors.primary : AppColors.slate400,
+                ),
+                tooltip: 'Save',
+                onPressed: _dirty ? _save : null,
               ),
           ],
         ),
         body: SafeArea(
           child: Column(
             children: [
-              QuillSimpleToolbar(
+              _CompactToolbarRow(
+                expanded: _toolbarExpanded,
+                onToggleFormatting: () => setState(() => _toolbarExpanded = !_toolbarExpanded),
+                onInsertImage: _pickAndInsertImage,
+                onSketch: _openSketch,
                 controller: _quillController,
-                config: QuillSimpleToolbarConfig(
-                  headerStyleType: HeaderStyleType.buttons,
-                  buttonOptions: QuillSimpleToolbarButtonOptions(
-                    selectHeaderStyleButtons:
-                        const QuillToolbarSelectHeaderStyleButtonsOptions(
-                          attributes: [Attribute.h1, Attribute.h2],
+              ),
+              // Collapsed by default — owner feedback, 2026-08-17: a full
+              // formatting bar permanently on screen "reserved space" and
+              // overlapped the content; now it only appears when asked for.
+              AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                child: _toolbarExpanded
+                    ? QuillSimpleToolbar(
+                        controller: _quillController,
+                        config: QuillSimpleToolbarConfig(
+                          headerStyleType: HeaderStyleType.buttons,
+                          buttonOptions: QuillSimpleToolbarButtonOptions(
+                            selectHeaderStyleButtons:
+                                const QuillToolbarSelectHeaderStyleButtonsOptions(
+                                  attributes: [Attribute.h1, Attribute.h2],
+                                ),
+                            base: QuillToolbarBaseButtonOptions(
+                              afterButtonPressed: () => _editorFocusNode.requestFocus(),
+                            ),
+                          ),
+                          showAlignmentButtons: true,
+                          showFontFamily: false,
+                          showFontSize: false,
+                          showColorButton: false,
+                          showBackgroundColorButton: false,
+                          showClearFormat: false,
+                          showStrikeThrough: false,
+                          showInlineCode: false,
+                          showSubscript: false,
+                          showSuperscript: false,
+                          showQuote: false,
+                          showCodeBlock: false,
+                          showSearchButton: false,
+                          showLink: false,
+                          showUndo: false,
+                          showRedo: false,
                         ),
-                    base: QuillToolbarBaseButtonOptions(
-                      afterButtonPressed: () => _editorFocusNode.requestFocus(),
-                    ),
-                  ),
-                  showAlignmentButtons: true,
-                  showFontFamily: false,
-                  showFontSize: false,
-                  showColorButton: false,
-                  showBackgroundColorButton: false,
-                  showClearFormat: false,
-                  showStrikeThrough: false,
-                  showInlineCode: false,
-                  showSubscript: false,
-                  showSuperscript: false,
-                  showQuote: false,
-                  showCodeBlock: false,
-                  showSearchButton: false,
-                  showLink: false,
-                  customButtons: [
-                    QuillToolbarCustomButtonOptions(
-                      icon: const Icon(Icons.image_outlined),
-                      tooltip: 'Insert image',
-                      onPressed: _pickAndInsertImage,
-                    ),
-                    QuillToolbarCustomButtonOptions(
-                      icon: const Icon(Icons.draw_outlined),
-                      tooltip: 'Add sketch',
-                      onPressed: _openSketch,
-                    ),
-                  ],
-                ),
+                      )
+                    : const SizedBox.shrink(),
               ),
               const Divider(height: 1),
               Padding(
@@ -274,7 +335,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     hintText: 'Title',
                     border: InputBorder.none,
                   ),
-                  onChanged: (_) => _scheduleSave(),
                 ),
               ),
               Expanded(
@@ -293,6 +353,53 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Always-visible slim bar: a formatting toggle plus the two "attach media"
+/// actions, so those stay reachable without expanding the full toolbar.
+class _CompactToolbarRow extends StatelessWidget {
+  const _CompactToolbarRow({
+    required this.expanded,
+    required this.onToggleFormatting,
+    required this.onInsertImage,
+    required this.onSketch,
+    required this.controller,
+  });
+
+  final bool expanded;
+  final VoidCallback onToggleFormatting;
+  final VoidCallback onInsertImage;
+  final VoidCallback onSketch;
+  final QuillController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(expanded ? Icons.expand_less_rounded : Icons.text_format_rounded),
+            tooltip: expanded ? 'Hide formatting' : 'Formatting',
+            onPressed: onToggleFormatting,
+          ),
+          IconButton(
+            icon: const Icon(Icons.image_outlined),
+            tooltip: 'Insert image',
+            onPressed: onInsertImage,
+          ),
+          IconButton(
+            icon: const Icon(Icons.draw_outlined),
+            tooltip: 'Add sketch',
+            onPressed: onSketch,
+          ),
+          const Spacer(),
+          QuillToolbarHistoryButton(controller: controller, isUndo: true),
+          QuillToolbarHistoryButton(controller: controller, isUndo: false),
+        ],
       ),
     );
   }

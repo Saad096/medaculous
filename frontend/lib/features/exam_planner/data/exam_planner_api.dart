@@ -148,12 +148,14 @@ class ExamPlannerApi {
     String? notes,
     List<ChecklistItem>? checklists,
     bool? isBookmarked,
+    String? difficulty,
   }) {
     return _call(
       () => _dio.patch('/exam-planner/topics/$topicId/meta', data: {
         if (notes != null) 'notes': notes,
         if (checklists != null) 'checklists': checklists.map((c) => c.toJson()).toList(),
         if (isBookmarked != null) 'is_bookmarked': isBookmarked,
+        if (difficulty != null) 'difficulty': difficulty,
       }),
       (data) => Topic.fromJson(data as Map<String, dynamic>),
     );

@@ -77,6 +77,25 @@ class AppColors {
   static const Color examPlannerIcon = Color(0xFF4F39F6);
   static const Color osceCardBg = Color(0xFFE8F8EE);
   static const Color osceIcon = Color(0xFF009966);
+
+  /// Cycle through this for any grid of items with no per-item color of its
+  /// own (Systems icon grid, disease-detail section grid) so every cell gets
+  /// a distinct tinted background instead of a uniform white/slate card —
+  /// owner feedback, 2026-08-17: "boxes ... background different colors,
+  /// as like in home page you have done".
+  static const List<(Color bg, Color icon)> cardPalette = [
+    (systemsCardBg, systemsIcon),
+    (symptomsCardBg, symptomsIcon),
+    (drugRecsCardBg, drugRecsIcon),
+    (formularyCardBg, formularyIcon),
+    (notesCardBg, notesIcon),
+    (aiCardBg, aiIcon),
+    (calculatorCardBg, calculatorIcon),
+    (knowledgeHubCardBg, knowledgeHubIcon),
+    (wardCardBg, wardIcon),
+    (examPlannerCardBg, examPlannerIcon),
+    (osceCardBg, osceIcon),
+  ];
 }
 
 /// Theme-aware text colors. Secondary text hardcoded to [AppColors.slate500]

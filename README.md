@@ -421,10 +421,45 @@ the list (it's gitignored, but worth a glance — that file holds real secrets).
    connects out to system Postgres, never a container, so nothing changes between local
    and production here). Migrations still run automatically on startup — nothing extra
    to run by hand once the Postgres system service itself is up.
-6. Rebuild the Flutter app pointed at the VM's real address before installing it on any
+6. **Load the reference content** (only needed once, on a fresh database — see below).
+7. Rebuild the Flutter app pointed at the VM's real address before installing it on any
    device meant to use the deployed backend — see §6c. A dev build pointed at
    `localhost`/`10.0.2.2` will never reach a remote VM; that's a build-time flag, not
    something that auto-detects the server.
+
+### Loading reference content (Systems/Diseases, Formulary, OSCE stations)
+
+A brand-new database has the schema but none of the actual medical reference content —
+Systems/Diseases, the Formulary's starter drug list, and OSCE stations all come from
+`backend/seed_data.sql` (a one-time data dump, already committed to the repo). Without
+running this once, those three screens legitimately show empty/"no results" — that's not
+a bug, just an unseeded database. Run it once per fresh database, from the VM (adjust
+host/user/db to match your actual `.env` — this example matches the defaults used
+throughout this README):
+
+```bash
+psql -h localhost -U saad -d medaculous -f backend/seed_data.sql
+```
+
+It's safe to re-run — every table it touches is content-only (no user accounts, notes, or
+anything else of yours), and running it twice just re-inserts the same rows with the same
+IDs.
+
+### Applying this round of updates specifically
+
+This update changed backend code (new Knowledge Hub folder-rename endpoint, Notes
+empty-trash endpoint, Exam Planner topic-difficulty field) alongside the frontend. Once
+the updated code is on the VM (however you're getting it there):
+
+```bash
+cd path/to/Medaculous\ v1\ ZIP
+docker compose up --build -d      # rebuilds the backend with the new code
+psql -h localhost -U saad -d medaculous -f backend/seed_data.sql   # one-time, see above
+```
+
+Then rebuild the Flutter app (§6c) pointed at the VM's address and reinstall it on any
+test device — the seed-data step is server-side only and doesn't require a new app build,
+but the backend code changes do need the container rebuilt.
 
 ---
 

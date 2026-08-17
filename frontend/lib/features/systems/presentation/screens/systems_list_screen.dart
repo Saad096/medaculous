@@ -195,16 +195,23 @@ class _IconGrid extends StatelessWidget {
     return GridView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+        // 3 columns fits all 15 systems in 5 rows with minimal scrolling —
+        // client reference, 2026-08-15.
+        crossAxisCount: 3,
         mainAxisSpacing: AppSpacing.md,
         crossAxisSpacing: AppSpacing.md,
-        childAspectRatio: 1.3,
+        childAspectRatio: 0.95,
       ),
       itemCount: systems.length,
       itemBuilder: (context, index) {
         final system = systems[index];
-        return Card(
+        final (bg, iconColor) = AppColors.cardPalette[index % AppColors.cardPalette.length];
+        return Container(
           clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(AppSpacing.md),
+          ),
           child: InkWell(
             onTap: () =>
                 context.push('/systems/${system.id}', extra: system.name),
@@ -213,14 +220,21 @@ class _IconGrid extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(system.icon, style: const TextStyle(fontSize: 36)),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    system.name,
-                    textAlign: TextAlign.center,
-                    style: AppTextStyles.bodyStrong,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  Text(system.icon, style: const TextStyle(fontSize: 28)),
+                  const SizedBox(height: AppSpacing.xs),
+                  // FittedBox shrinks the whole word to fit one line instead
+                  // of wrapping — a plain 2-line wrap left a single orphan
+                  // character (e.g. "Endocrinology" -> "...ocrinolog" / "y")
+                  // on its own line, which read as broken (owner feedback,
+                  // 2026-08-17).
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      system.name,
+                      textAlign: TextAlign.center,
+                      softWrap: false,
+                      style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w700, color: iconColor),
+                    ),
                   ),
                 ],
               ),
@@ -239,12 +253,15 @@ class _ListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Client reference, 2026-08-15: list view specifically must be
+    // alphabetical (the icon grid keeps its own curated order).
+    final sorted = [...systems]..sort((a, b) => a.name.compareTo(b.name));
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-      itemCount: systems.length,
+      itemCount: sorted.length,
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
-        final system = systems[index];
+        final system = sorted[index];
         return ListTile(
           leading: Text(system.icon, style: const TextStyle(fontSize: 24)),
           title: Text(system.name, style: AppTextStyles.bodyStrong),

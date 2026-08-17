@@ -139,14 +139,40 @@ class _WardCompanionScreenState extends ConsumerState<WardCompanionScreen> {
     if (_shift == null) {
       return _StartShiftForm(onStart: _startShift);
     }
+    final remainingTasks = _tasks.where((t) => !t.completed).length;
+    final completedPct = _tasks.isEmpty ? 0 : ((_tasks.length - remainingTasks) / _tasks.length * 100).round();
     return DefaultTabController(
       length: 4,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Ward Companion'),
-          bottom: const TabBar(
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Ward Companion', maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (_tasks.isNotEmpty)
+                Text(
+                  '$remainingTasks outstanding task${remainingTasks == 1 ? '' : 's'} · $completedPct% completed',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.caption.copyWith(color: context.secondaryText),
+                ),
+            ],
+          ),
+          bottom: TabBar(
             isScrollable: true,
-            tabs: [Tab(text: 'Patients'), Tab(text: 'Tasks'), Tab(text: 'Handover'), Tab(text: 'Settings')],
+            tabs: [
+              const Tab(text: 'Patients'),
+              Tab(
+                child: Badge(
+                  isLabelVisible: remainingTasks > 0,
+                  label: Text('$remainingTasks'),
+                  child: const Text('Tasks'),
+                ),
+              ),
+              const Tab(text: 'Handover'),
+              const Tab(text: 'Shift'),
+            ],
           ),
         ),
         body: TabBarView(
@@ -154,7 +180,7 @@ class _WardCompanionScreenState extends ConsumerState<WardCompanionScreen> {
             _PatientsTab(patients: _patients, onReload: _load),
             _TasksTab(patients: _patients, tasks: _tasks, onReload: _load),
             _HandoverTab(shift: _shift, patients: _patients, tasks: _tasks),
-            _SettingsTab(shift: _shift!, onReload: _load),
+            _ShiftTab(shift: _shift!, onReload: _load, onStartShift: _startShift),
           ],
         ),
       ),
@@ -494,6 +520,13 @@ class _TasksTab extends ConsumerWidget {
     await onReload();
   }
 
+  // Client feedback, 2026-08-15: task rows showed the patient's initials
+  // only — room and bed are needed to actually find the right patient.
+  String _taskSubtitle(Patient? patient, String priority) {
+    if (patient == null) return '? · $priority';
+    return '${patient.initials} (Room ${patient.roomNumber} · Bed ${patient.bedNumber}) · $priority';
+  }
+
   Color _priorityColor(String priority) {
     switch (priority) {
       case 'High':
@@ -507,7 +540,7 @@ class _TasksTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final patientNames = {for (final p in patients) p.id: p.initials};
+    final patientsById = {for (final p in patients) p.id: p};
     return Scaffold(
       floatingActionButton: FloatingActionButton(onPressed: () => _addTask(context, ref), child: const Icon(Icons.add_task_rounded)),
       body: tasks.isEmpty
@@ -542,7 +575,10 @@ class _TasksTab extends ConsumerWidget {
                         t.title,
                         style: AppTextStyles.body.copyWith(decoration: t.completed ? TextDecoration.lineThrough : null),
                       ),
-                      subtitle: Text('${patientNames[t.patientId] ?? "?"} · ${t.priority}', style: AppTextStyles.caption.copyWith(color: _priorityColor(t.priority))),
+                      subtitle: Text(
+                        _taskSubtitle(patientsById[t.patientId], t.priority),
+                        style: AppTextStyles.caption.copyWith(color: _priorityColor(t.priority)),
+                      ),
                     ),
                   ),
                 );
@@ -597,11 +633,25 @@ class _HandoverTab extends StatelessWidget {
   }
 }
 
-class _SettingsTab extends ConsumerWidget {
-  const _SettingsTab({required this.shift, required this.onReload});
+class _ShiftTab extends ConsumerWidget {
+  const _ShiftTab({required this.shift, required this.onReload, required this.onStartShift});
 
   final Shift shift;
   final Future<void> Function() onReload;
+  final Future<void> Function({required String hospital, required String ward, required String specialty, required String shiftType}) onStartShift;
+
+  Future<void> _startNewShift(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (routeContext) => _StartShiftForm(
+          onStart: ({required hospital, required ward, required specialty, required shiftType}) async {
+            await onStartShift(hospital: hospital, ward: ward, specialty: specialty, shiftType: shiftType);
+            if (routeContext.mounted) Navigator.of(routeContext).pop();
+          },
+        ),
+      ),
+    );
+  }
 
   Future<void> _completeShift(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
@@ -669,6 +719,14 @@ class _SettingsTab extends ConsumerWidget {
               onPressed: () => _completeShift(context, ref),
               icon: const Icon(Icons.check_circle_outline_rounded),
               label: const Text('Complete Shift'),
+            )
+          else
+            // Client feedback, 2026-08-15: after completing a shift there
+            // was no way to begin a new one without wiping all data.
+            FilledButton.icon(
+              onPressed: () => _startNewShift(context),
+              icon: const Icon(Icons.play_circle_outline_rounded),
+              label: const Text('Start New Shift'),
             ),
           const SizedBox(height: AppSpacing.sm),
           FilledButton.icon(

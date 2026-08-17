@@ -215,6 +215,83 @@ class _KnowledgeHubListScreenState
     await _load();
   }
 
+  Future<void> _showFolderOptions(PdfFolder folder) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.drive_file_rename_outline_rounded),
+              title: const Text('Rename'),
+              onTap: () => Navigator.of(sheetContext).pop('rename'),
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline_rounded, color: AppColors.danger),
+              title: Text('Delete', style: TextStyle(color: AppColors.danger)),
+              onTap: () => Navigator.of(sheetContext).pop('delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'rename') {
+      await _renameFolder(folder);
+    } else if (action == 'delete') {
+      await _deleteFolder(folder);
+    }
+  }
+
+  Future<void> _renameFolder(PdfFolder folder) async {
+    final controller = TextEditingController(text: folder.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename folder'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Folder name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    await ref.read(knowledgeHubApiProvider).renameFolder(folder.id, name);
+    await _load();
+  }
+
+  Future<void> _deleteFolder(PdfFolder folder) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this folder?'),
+        content: Text('"${folder.name}" will be deleted. PDFs inside it move to the root, they are not deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await ref.read(knowledgeHubApiProvider).deleteFolder(folder.id);
+    await _load();
+  }
+
   Future<void> _uploadPdf() async {
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
@@ -254,9 +331,13 @@ class _KnowledgeHubListScreenState
             children: [
               Text(pdf.displayTitle, style: AppTextStyles.headline),
               const SizedBox(height: AppSpacing.md),
-              _DetailRow(label: 'Filename', value: pdf.filename),
               _DetailRow(label: 'Pages', value: '${pdf.pageCount}'),
               _DetailRow(label: 'Size', value: _formatSize(pdf.sizeBytes)),
+              // Only shown when the PDF's own embedded metadata actually
+              // differs from the filename — it's supplementary, not the
+              // primary name (see PdfDocument.displayTitle).
+              if (pdf.title != null && pdf.title != pdf.filename)
+                _DetailRow(label: 'PDF title', value: pdf.title!),
               if (pdf.author != null) _DetailRow(label: 'Author', value: pdf.author!),
               _DetailRow(
                 label: 'Uploaded',
@@ -509,6 +590,7 @@ class _KnowledgeHubListScreenState
                           _FolderTile(
                             folder: folder,
                             onTap: () => _openFolder(folder.id),
+                            onLongPress: () => _showFolderOptions(folder),
                           ),
                         for (final pdf in _pdfs)
                           Dismissible(
@@ -701,16 +783,18 @@ class _BreadcrumbItem extends StatelessWidget {
 /// flat `Card` used for PDF rows, so folders read as distinct, tappable
 /// containers you drill into.
 class _FolderTile extends StatelessWidget {
-  const _FolderTile({required this.folder, required this.onTap});
+  const _FolderTile({required this.folder, required this.onTap, required this.onLongPress});
 
   final PdfFolder folder;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(AppRadii.lg),
       child: Container(
         margin: const EdgeInsets.only(bottom: AppSpacing.sm),

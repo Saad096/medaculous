@@ -9,6 +9,10 @@ class FolderCreate(BaseModel):
     parent_id: uuid.UUID | None = None
 
 
+class FolderRename(BaseModel):
+    name: str
+
+
 class FolderOut(BaseModel):
     id: uuid.UUID
     name: str

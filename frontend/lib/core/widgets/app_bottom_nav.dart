@@ -18,7 +18,10 @@ enum AppNavTab { home, systems, symptoms, formulary, notes }
 class AppBottomNav extends StatelessWidget {
   const AppBottomNav({super.key, required this.current});
 
-  final AppNavTab current;
+  /// Null means no tab is active — used on secondary screens (e.g. Drug
+  /// Recommendations) that reuse this bar for navigation without being one
+  /// of the 5 tabs themselves.
+  final AppNavTab? current;
 
   static const _items = [
     (

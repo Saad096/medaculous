@@ -42,26 +42,66 @@ class _FeatureCardData {
   final String route;
 }
 
-// Systems, Symptoms, Formulary, Notes, and Medaculous AI are deliberately
-// NOT listed here — they're already one tap away via the persistent bottom
-// nav (+ the AI FAB), so a duplicate card for each on Home was pure
-// redundancy (owner request, 2026-08-14: "icons/boxes are duplicate same
-// things"). Only the 6 features with no other entry point get a Home card —
-// an even count so the 2-column grid always ends on a full row instead of a
-// half-empty one (owner feedback, 2026-08-14: "empty feel").
+// All 11 features, in the exact order the client specified (2026-08-15
+// feedback PDF) — Systems/Symptoms/Formulary/Notes/Medaculous AI are also
+// reachable via the bottom nav + AI FAB, but the client explicitly wants
+// both entry points, not one or the other. Subtext is deliberately brief
+// (client reference: "browse by body system", "search by symptoms") so it
+// never gets cut off, and titles wrap to 2 lines instead of being clipped
+// (the "Drug Recommendations" cutoff the client reported).
 const _features = [
   _FeatureCardData(
+    icon: Icons.grid_view_rounded,
+    title: 'Systems',
+    description: 'Browse by body system',
+    bg: AppColors.systemsCardBg,
+    iconColor: AppColors.systemsIcon,
+    route: '/systems',
+  ),
+  _FeatureCardData(
+    icon: Icons.medical_services_rounded,
+    title: 'Symptoms',
+    description: 'Search by symptoms',
+    bg: AppColors.symptomsCardBg,
+    iconColor: AppColors.symptomsIcon,
+    route: '/symptom-checker',
+  ),
+  _FeatureCardData(
     icon: Icons.medication_rounded,
-    title: 'Drug Recommendations',
-    description: 'AI pharmacist: interactions, dosing, substitutes.',
+    title: 'Symptom-Based Drug Recommendations',
+    description: 'AI Clinical Pharmacist',
     bg: AppColors.drugRecsCardBg,
     iconColor: AppColors.drugRecsIcon,
     route: '/drug-recommendations',
   ),
   _FeatureCardData(
+    icon: Icons.local_pharmacy_rounded,
+    title: 'Formulary',
+    description: 'Drug information',
+    bg: AppColors.formularyCardBg,
+    iconColor: AppColors.formularyIcon,
+    route: '/formulary',
+  ),
+  _FeatureCardData(
+    icon: Icons.note_alt_rounded,
+    title: 'Notes',
+    description: 'Your saved items',
+    bg: AppColors.notesCardBg,
+    iconColor: AppColors.notesIcon,
+    route: '/notes',
+  ),
+  _FeatureCardData(
+    icon: Icons.auto_awesome_rounded,
+    title: 'Medaculous AI',
+    description: 'Ask AI',
+    bg: AppColors.aiCardBg,
+    iconColor: AppColors.aiIcon,
+    route: '/ai-chat',
+  ),
+  _FeatureCardData(
     icon: Icons.calculate_rounded,
     title: 'Calculator',
-    description: 'Access medical calculators in-app.',
+    description: 'Clinical tools',
     bg: AppColors.calculatorCardBg,
     iconColor: AppColors.calculatorIcon,
     route: '/calculator',
@@ -69,7 +109,7 @@ const _features = [
   _FeatureCardData(
     icon: Icons.menu_book_rounded,
     title: 'Knowledge Hub',
-    description: 'Upload, store, search and read your medical PDFs.',
+    description: 'PDF library & search',
     bg: AppColors.knowledgeHubCardBg,
     iconColor: AppColors.knowledgeHubIcon,
     route: '/knowledge-hub',
@@ -77,7 +117,7 @@ const _features = [
   _FeatureCardData(
     icon: Icons.local_hospital_rounded,
     title: 'Ward Companion',
-    description: 'Manage patients, tasks, notes and handover on shift.',
+    description: 'Shift rounds & handovers',
     bg: AppColors.wardCardBg,
     iconColor: AppColors.wardIcon,
     route: '/ward-companion',
@@ -85,7 +125,7 @@ const _features = [
   _FeatureCardData(
     icon: Icons.school_rounded,
     title: 'Exam Planner',
-    description: 'Adaptive study plan, revision scheduling, syllabus.',
+    description: 'Postgraduate study schedule',
     bg: AppColors.examPlannerCardBg,
     iconColor: AppColors.examPlannerIcon,
     route: '/exam-planner',
@@ -93,7 +133,7 @@ const _features = [
   _FeatureCardData(
     icon: Icons.checklist_rtl_rounded,
     title: 'OSCE Preparation',
-    description: 'Station checklists with a 10-minute exam timer.',
+    description: 'Clinical exam stations & timer',
     bg: AppColors.osceCardBg,
     iconColor: AppColors.osceIcon,
     route: '/osce',
@@ -222,7 +262,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     crossAxisCount: 2,
                     mainAxisSpacing: AppSpacing.md,
                     crossAxisSpacing: AppSpacing.md,
-                    childAspectRatio: 0.92,
+                    // Taller than before (owner feedback, 2026-08-17: never
+                    // truncate a title — "Symptom-Based Drug Recommendations"
+                    // needs up to 3 lines to show in full).
+                    childAspectRatio: 0.78,
                   ),
                   itemCount: _features.length,
                   itemBuilder: (context, index) => _FeatureCard(
@@ -298,8 +341,12 @@ class _FeatureCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(AppSpacing.lg),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
+        // Whole card tinted with the feature's own color (owner feedback,
+        // 2026-08-17: "boxes should be filled with background colored
+        // different colors") rather than a plain white/slate card with only
+        // a small colored icon chip.
         decoration: BoxDecoration(
-          color: isDark ? AppColors.slate800 : Colors.white,
+          color: data.bg,
           borderRadius: BorderRadius.circular(AppSpacing.lg),
           boxShadow: [
             BoxShadow(
@@ -309,38 +356,28 @@ class _FeatureCard extends StatelessWidget {
             ),
           ],
         ),
-        // Centered layout matching the Systems/disease tiles (owner request,
-        // 2026-08-13): icon front-and-center and noticeably larger than the
-        // old top-left 44px chip.
+        // Centered layout (owner feedback, 2026-08-17: left-aligned icon and
+        // text looked wrong — "must be in center"). Text has no maxLines/
+        // ellipsis so a long title like "Symptom-Based Drug Recommendations"
+        // always shows in full, wrapping onto as many lines as it needs —
+        // the grid's taller aspect ratio (see childAspectRatio above) gives
+        // it the room to do that without overflowing the cell.
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: data.bg,
-                borderRadius: BorderRadius.circular(AppSpacing.lg),
-              ),
-              child: Icon(data.icon, color: data.iconColor, size: 32),
-            ),
-            const SizedBox(height: AppSpacing.md),
+            Icon(data.icon, color: data.iconColor, size: 32),
+            const SizedBox(height: AppSpacing.sm),
             Text(
               data.title,
               textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.bodyStrong.copyWith(
-                color: isDark ? Colors.white : AppColors.cardTitleText,
-              ),
+              style: AppTextStyles.bodyStrong.copyWith(color: AppColors.cardTitleText),
             ),
             const SizedBox(height: 4),
             Text(
               data.description,
               textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.micro.copyWith(color: context.secondaryText),
+              style: AppTextStyles.micro.copyWith(color: AppColors.cardTitleText.withValues(alpha: 0.7)),
             ),
           ],
         ),

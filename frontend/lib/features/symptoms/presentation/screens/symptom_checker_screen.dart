@@ -162,6 +162,19 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
   }
 
   Widget _buildForm() {
+    // Pinned footer instead of ending the scrollable form — owner feedback,
+    // 2026-08-17: same fix as Drug Recommendations' submit button, which
+    // could end up under the auto-hide nav bar when it was the last item in
+    // a scrollable list instead of a fixed row above it.
+    return Column(
+      children: [
+        Expanded(child: _buildFormFields()),
+        _buildAnalyzeFooter(),
+      ],
+    );
+  }
+
+  Widget _buildFormFields() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
@@ -206,6 +219,7 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
                   Chip(
                     label: Text(symptom),
                     onDeleted: () => _removeSymptom(symptom),
+                    shape: const StadiumBorder(),
                   ),
               ],
             ),
@@ -224,6 +238,7 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
                 ActionChip(
                   label: Text(symptom),
                   onPressed: () => _addSymptom(symptom),
+                  shape: const StadiumBorder(),
                 ),
             ],
           ),
@@ -305,24 +320,34 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
               style: AppTextStyles.body.copyWith(color: AppColors.danger),
             ),
           ],
-          const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _isLoading ? null : _analyze,
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text('Analyze Symptoms'),
-            ),
-          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAnalyzeFooter() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.slate900 : Colors.white,
+        border: Border(top: BorderSide(color: isDark ? AppColors.slate700 : AppColors.slate200)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: _isLoading ? null : _analyze,
+            child: _isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Analyze Symptoms'),
+          ),
+        ),
       ),
     );
   }

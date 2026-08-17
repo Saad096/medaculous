@@ -78,6 +78,10 @@ class NotesApi {
     );
   }
 
+  Future<void> emptyTrash() {
+    return _call(() => _dio.delete('/notes/trash'), (_) {});
+  }
+
   Future<Note> createNote({
     String title = '',
     String contentHtml = '',

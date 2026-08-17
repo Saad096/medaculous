@@ -669,6 +669,23 @@ class _PlannerTabs extends StatelessWidget {
   }
 }
 
+/// Replaces the old 1-5 "how confident do you feel" slider (client feedback,
+/// 2026-08-15) — maps onto both ExamSession.confidence_rating (session-level)
+/// and ExamTopicMeta.difficulty (topic-level, feeds the Progress tab's
+/// difficulty-distribution stats).
+enum DifficultyChoice {
+  easy('Easy', 'easy', 4),
+  moderate('Moderate', 'moderate', 3),
+  difficult('Difficult', 'difficult', 2),
+  mastered('Mastered', 'easy', 5);
+
+  const DifficultyChoice(this.label, this.difficulty, this.confidenceRating);
+
+  final String label;
+  final String difficulty;
+  final int confidenceRating;
+}
+
 class _DailyTab extends ConsumerStatefulWidget {
   const _DailyTab();
 
@@ -695,35 +712,36 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
     });
   }
 
-  Future<void> _showConfidenceDialog(ExamSession session) async {
-    var confidence = 3;
-    final confirmed = await showDialog<bool>(
+  Future<void> _showDifficultyDialog(ExamSession session) async {
+    final picked = await showDialog<DifficultyChoice>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('How confident do you feel?'),
-          content: Slider(
-            value: confidence.toDouble(),
-            min: 1,
-            max: 5,
-            divisions: 4,
-            label: '$confidence',
-            onChanged: (v) => setDialogState(() => confidence = v.round()),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Skip')),
-            FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Mark Complete')),
-          ],
-        ),
+      builder: (context) => SimpleDialog(
+        title: const Text('What was the difficulty level?'),
+        children: [
+          for (final choice in DifficultyChoice.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(choice),
+              child: Text(choice.label),
+            ),
+        ],
       ),
     );
-    if (confirmed != true) return;
-    await ref.read(examPlannerApiProvider).updateSession(
-          session.id,
-          status: 'completed',
-          actualMinutesSpent: session.estimatedMinutes,
-          confidenceRating: confidence,
-        );
+    if (picked == null) return;
+    final api = ref.read(examPlannerApiProvider);
+    await api.updateSession(
+      session.id,
+      status: 'completed',
+      actualMinutesSpent: session.estimatedMinutes,
+      confidenceRating: picked.confidenceRating,
+    );
+    await api.updateTopicMeta(session.topicId, difficulty: picked.difficulty);
+    await _load();
+  }
+
+  /// Toggle: re-tapping a completed session reopens it — client feedback,
+  /// 2026-08-15: checking a topic gave no way to uncheck it.
+  Future<void> _uncomplete(ExamSession session) async {
+    await ref.read(examPlannerApiProvider).updateSession(session.id, status: 'pending');
     await _load();
   }
 
@@ -756,12 +774,15 @@ class _DailyTabState extends ConsumerState<_DailyTab> {
                 '${s.specialtyTitle} · ${s.estimatedMinutes} min${s.type == "revision" ? " · Revision #${s.revisionIteration}" : ""}',
                 style: AppTextStyles.caption.copyWith(color: context.secondaryText),
               ),
-              trailing: isDone
-                  ? const Icon(Icons.check_circle_rounded, color: AppColors.success)
-                  : IconButton(
-                      icon: const Icon(Icons.radio_button_unchecked_rounded),
-                      onPressed: () => _showConfidenceDialog(s),
-                    ),
+              // The whole row toggles complete/incomplete now, not just the
+              // small trailing icon — owner feedback, 2026-08-17: "the click
+              // area study topic should be complete instead of just radio
+              // button."
+              trailing: Icon(
+                isDone ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                color: isDone ? AppColors.success : AppColors.slate400,
+              ),
+              onTap: () => isDone ? _uncomplete(s) : _showDifficultyDialog(s),
             ),
           );
         },
@@ -817,34 +838,33 @@ class _WeeklyTabState extends ConsumerState<_WeeklyTab> {
   }
 
   Future<void> _completeSession(ExamSession session) async {
-    var confidence = 3;
-    final confirmed = await showDialog<bool>(
+    final picked = await showDialog<DifficultyChoice>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('How confident do you feel?'),
-          content: Slider(
-            value: confidence.toDouble(),
-            min: 1,
-            max: 5,
-            divisions: 4,
-            label: '$confidence',
-            onChanged: (v) => setDialogState(() => confidence = v.round()),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Mark Complete')),
-          ],
-        ),
+      builder: (context) => SimpleDialog(
+        title: const Text('What was the difficulty level?'),
+        children: [
+          for (final choice in DifficultyChoice.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(choice),
+              child: Text(choice.label),
+            ),
+        ],
       ),
     );
-    if (confirmed != true) return;
-    await ref.read(examPlannerApiProvider).updateSession(
-          session.id,
-          status: 'completed',
-          actualMinutesSpent: session.estimatedMinutes,
-          confidenceRating: confidence,
-        );
+    if (picked == null) return;
+    final api = ref.read(examPlannerApiProvider);
+    await api.updateSession(
+      session.id,
+      status: 'completed',
+      actualMinutesSpent: session.estimatedMinutes,
+      confidenceRating: picked.confidenceRating,
+    );
+    await api.updateTopicMeta(session.topicId, difficulty: picked.difficulty);
+    await _load();
+  }
+
+  Future<void> _uncompleteSession(ExamSession session) async {
+    await ref.read(examPlannerApiProvider).updateSession(session.id, status: 'pending');
     await _load();
   }
 
@@ -984,7 +1004,7 @@ class _WeeklyTabState extends ConsumerState<_WeeklyTab> {
                                     padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                                     child: InkWell(
                                       borderRadius: BorderRadius.circular(8),
-                                      onTap: s.status == 'completed' ? null : () => _completeSession(s),
+                                      onTap: s.status == 'completed' ? () => _uncompleteSession(s) : () => _completeSession(s),
                                       child: Container(
                                         width: double.infinity,
                                         padding: const EdgeInsets.symmetric(
@@ -1815,10 +1835,10 @@ class _ProgressTabState extends ConsumerState<_ProgressTab> {
     }
 
     final allTopics = [for (final sp in _specialties) ...sp.topics];
-    final easy = allTopics.where((t) => t.difficulty == 'easy').length;
-    final moderate = allTopics.where((t) => t.difficulty == 'moderate').length;
-    final difficult = allTopics.where((t) => t.difficulty == 'difficult' || t.difficulty == 'hard').length;
-    final mastered = allTopics.where((t) => t.isCompleted && t.confidenceRating >= 4).length;
+    final easyTopics = allTopics.where((t) => t.difficulty == 'easy').toList();
+    final moderateTopics = allTopics.where((t) => t.difficulty == 'moderate').toList();
+    final difficultTopics = allTopics.where((t) => t.difficulty == 'difficult' || t.difficulty == 'hard').toList();
+    final masteredTopics = allTopics.where((t) => t.isCompleted && t.confidenceRating >= 4).toList();
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -1893,17 +1913,45 @@ class _ProgressTabState extends ConsumerState<_ProgressTab> {
           const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
-              Expanded(child: _DifficultyCard(label: 'Easy', count: easy, color: AppColors.success)),
+              Expanded(
+                child: _DifficultyCard(
+                  label: 'Easy',
+                  topics: easyTopics,
+                  color: AppColors.success,
+                  onTap: () => _showTopicsSheet(context, 'Easy topics', easyTopics),
+                ),
+              ),
               const SizedBox(width: AppSpacing.sm),
-              Expanded(child: _DifficultyCard(label: 'Moderate', count: moderate, color: AppColors.warning)),
+              Expanded(
+                child: _DifficultyCard(
+                  label: 'Moderate',
+                  topics: moderateTopics,
+                  color: AppColors.warning,
+                  onTap: () => _showTopicsSheet(context, 'Moderate topics', moderateTopics),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
-              Expanded(child: _DifficultyCard(label: 'Difficult', count: difficult, color: AppColors.danger)),
+              Expanded(
+                child: _DifficultyCard(
+                  label: 'Difficult',
+                  topics: difficultTopics,
+                  color: AppColors.danger,
+                  onTap: () => _showTopicsSheet(context, 'Difficult topics', difficultTopics),
+                ),
+              ),
               const SizedBox(width: AppSpacing.sm),
-              Expanded(child: _DifficultyCard(label: 'Mastered', count: mastered, color: AppColors.aiPurple)),
+              Expanded(
+                child: _DifficultyCard(
+                  label: 'Mastered',
+                  topics: masteredTopics,
+                  color: AppColors.aiPurple,
+                  onTap: () => _showTopicsSheet(context, 'Mastered topics', masteredTopics),
+                ),
+              ),
             ],
           ),
         ],
@@ -1953,29 +2001,82 @@ class _SpecialtyProgressRow extends StatelessWidget {
 }
 
 class _DifficultyCard extends StatelessWidget {
-  const _DifficultyCard({required this.label, required this.count, required this.color});
+  const _DifficultyCard({required this.label, required this.topics, required this.color, required this.onTap});
 
   final String label;
-  final int count;
+  final List<Topic> topics;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: AppTextStyles.caption.copyWith(color: color, fontWeight: FontWeight.w600)),
-            const SizedBox(height: AppSpacing.xs),
-            Text('$count', style: AppTextStyles.headline.copyWith(color: color)),
-            Text('topics', style: AppTextStyles.micro.copyWith(color: context.secondaryText)),
-          ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: AppTextStyles.caption.copyWith(color: color, fontWeight: FontWeight.w600)),
+              const SizedBox(height: AppSpacing.xs),
+              Text('${topics.length}', style: AppTextStyles.headline.copyWith(color: color)),
+              Text('topics', style: AppTextStyles.micro.copyWith(color: context.secondaryText)),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+// Client feedback, 2026-08-15: tapping a difficulty stat card did nothing —
+// it should open the list of topics in that bucket.
+void _showTopicsSheet(BuildContext context, String title, List<Topic> topics) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.sm, AppSpacing.sm, AppSpacing.md),
+            child: Row(
+              children: [
+                Expanded(child: Text(title, style: AppTextStyles.title)),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  tooltip: 'Close',
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: topics.isEmpty
+                ? Center(child: Text('No topics here yet.', style: AppTextStyles.body.copyWith(color: AppColors.slate400)))
+                : ListView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    itemCount: topics.length,
+                    itemBuilder: (context, index) {
+                      final topic = topics[index];
+                      return ListTile(
+                        title: Text(topic.title),
+                        trailing: topic.status == 'completed' ? const Icon(Icons.check_circle_rounded, color: AppColors.success) : null,
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Personal notes and bookmarks (feature PDF: "In the notes tab, notes can

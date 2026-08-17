@@ -42,6 +42,13 @@ class KnowledgeHubApi {
     );
   }
 
+  Future<PdfFolder> renameFolder(String id, String name) {
+    return _call(
+      () => _dio.patch('/knowledge-hub/folders/$id', data: {'name': name}),
+      (data) => PdfFolder.fromJson(data as Map<String, dynamic>),
+    );
+  }
+
   Future<void> deleteFolder(String id) {
     return _call(() => _dio.delete('/knowledge-hub/folders/$id'), (_) {});
   }

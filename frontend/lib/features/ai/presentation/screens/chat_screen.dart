@@ -390,21 +390,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             if (canPickMode && !keyboardOpen)
               Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-                child: Wrap(
-                  spacing: AppSpacing.sm,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    for (final mode in ChatMode.values)
-                      _ModePill(
-                        mode: mode,
-                        selected: mode == _mode,
-                        onTap: () => setState(() => _mode = mode),
-                      ),
-                  ],
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                // A Wrap dropped "Exam Prep" onto its own row whenever the 4
+                // pills didn't quite fit one line width (client feedback,
+                // 2026-08-15: it should sit inline next to ER). A horizontal
+                // scroll keeps every mode on one row on any screen width.
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  child: Row(
+                    children: [
+                      for (final mode in ChatMode.values) ...[
+                        _ModePill(
+                          mode: mode,
+                          selected: mode == _mode,
+                          onTap: () => setState(() => _mode = mode),
+                        ),
+                        if (mode != ChatMode.values.last) const SizedBox(width: AppSpacing.sm),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             if (_errorMessage != null)

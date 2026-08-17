@@ -242,6 +242,11 @@ class _OsceListScreenState extends ConsumerState<OsceListScreen> {
                     )
                   else
                     Text('Not started', style: AppTextStyles.micro.copyWith(color: AppColors.slate400)),
+                  // Signals the whole card is tappable/expandable — owner
+                  // feedback, 2026-08-17: nothing hinted these rows opened
+                  // into the station's checklist.
+                  const SizedBox(width: 6),
+                  const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.slate400),
                 ],
               ),
             ],

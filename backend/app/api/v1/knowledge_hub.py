@@ -23,6 +23,7 @@ from app.schemas.knowledge_hub import (
     BookmarkOut,
     FolderCreate,
     FolderOut,
+    FolderRename,
     PdfDocumentOut,
     PdfDocumentUpdate,
     PdfSearchHit,
@@ -134,6 +135,20 @@ async def create_folder(
         await _get_owned_folder(db, body.parent_id, user)
     folder = PdfFolder(user_id=user.id, name=body.name, parent_id=body.parent_id)
     db.add(folder)
+    await db.commit()
+    await db.refresh(folder)
+    return folder
+
+
+@router.patch("/folders/{folder_id}", response_model=FolderOut)
+async def rename_folder(
+    folder_id: uuid.UUID,
+    body: FolderRename,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PdfFolder:
+    folder = await _get_owned_folder(db, folder_id, user)
+    folder.name = body.name.strip()
     await db.commit()
     await db.refresh(folder)
     return folder

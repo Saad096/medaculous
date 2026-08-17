@@ -57,6 +57,14 @@ if it ever contains anything sensitive — today it only holds a URL, not secret
 
 ## Building and installing an APK (sideloading, no store involved)
 
+**Before building a release to share with anyone (a client, a tester)**, confirm the
+backend it points at has actually been seeded — see the root
+[`README.md`](../README.md#loading-reference-content-systemsdiseases-formulary-osce-stations).
+A schema-only, unseeded database makes Systems/Diseases, Formulary, and OSCE
+Preparation all show real but empty screens ("no results") — that's not a client-visible
+bug, just a one-time step (`psql -f backend/seed_data.sql`) that's easy to forget when
+pointing a new build at a freshly-deployed VM for the first time.
+
 Same `--dart-define` rules as above apply to `flutter build` as to `flutter run`. Debug
 build (fastest, includes debugging hooks, fine for internal testing):
 

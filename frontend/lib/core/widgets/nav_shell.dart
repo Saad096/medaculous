@@ -24,7 +24,10 @@ class NavShell extends StatefulWidget {
     super.key,
   });
 
-  final AppNavTab current;
+  /// Null on secondary screens reached from Home that aren't one of the 5
+  /// tabs (e.g. Drug Recommendations) — still gets the same auto-hide bottom
+  /// nav + AI FAB chrome, just with nothing highlighted as active.
+  final AppNavTab? current;
   final Widget body;
   final PreferredSizeWidget? appBar;
 
@@ -88,11 +91,18 @@ class _NavShellState extends State<NavShell> {
         appBar: widget.appBar,
         body: NotificationListener<UserScrollNotification>(
           onNotification: _onScroll,
-          // A completed tap anywhere (that no button claims) brings the
-          // chrome back — "tap to reveal" reading-mode behaviour.
+          // A tap on empty space toggles the chrome — owner feedback,
+          // 2026-08-17: it should hide again on a second tap, not only ever
+          // reveal (tapping while it's already visible used to do nothing).
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: () => _setVisible(true),
+            // Tapping anywhere else also clears a lingering confirmation
+            // banner (client feedback, 2026-08-15: "note moved to trash"
+            // shouldn't require tapping its own action to go away).
+            onTap: () {
+              _setVisible(!_chromeVisible);
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            },
             child: widget.body,
           ),
         ),

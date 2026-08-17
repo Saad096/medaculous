@@ -5,6 +5,7 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/nav_shell.dart';
 import '../../../settings/presentation/widgets/usage_limit_dialog.dart';
 import '../../domain/pharmacy.dart';
 import '../providers/pharmacy_providers.dart';
@@ -79,7 +80,11 @@ class _DrugRecommendationsScreenState extends ConsumerState<DrugRecommendationsS
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 4,
-      child: Scaffold(
+      // Not one of the 5 bottom-nav tabs, but the client wants the same
+      // persistent, auto-hide-on-scroll navigation bar here too — NavShell
+      // with current: null gives that without adding a 6th tab (2026-08-17).
+      child: NavShell(
+        current: null,
         appBar: AppBar(
           title: const Text('Drug Recommendations'),
           bottom: const TabBar(
@@ -203,6 +208,21 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
   Widget build(BuildContext context) {
     super.build(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // The submit button used to be the last item in this same scrollable
+    // list, so it moved further down (and could end up under the
+    // auto-hide nav bar) every time more symptoms were added. Pinning it as
+    // a fixed footer outside the scroll area means it's always in the same
+    // place, never covered regardless of how tall the form above it gets or
+    // whether the nav bar is showing (owner feedback, 2026-08-17).
+    return Column(
+      children: [
+        Expanded(child: _buildForm(context, isDark)),
+        _buildReviewFooter(),
+      ],
+    );
+  }
+
+  Widget _buildForm(BuildContext context, bool isDark) {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
@@ -236,7 +256,10 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
-            children: [for (final s in _symptoms) Chip(label: Text(s), onDeleted: () => setState(() => _symptoms.remove(s)))],
+            children: [
+              for (final s in _symptoms)
+                Chip(label: Text(s), onDeleted: () => setState(() => _symptoms.remove(s)), shape: const StadiumBorder()),
+            ],
           ),
         ],
         const SizedBox(height: AppSpacing.md),
@@ -245,7 +268,10 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
-          children: [for (final ex in _quickExamples) ActionChip(label: Text(ex), onPressed: () => _addSymptom(ex))],
+          children: [
+            for (final ex in _quickExamples)
+              ActionChip(label: Text(ex), onPressed: () => _addSymptom(ex), shape: const StadiumBorder()),
+          ],
         ),
         const SizedBox(height: AppSpacing.md),
         Row(
@@ -371,17 +397,6 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
           const SizedBox(height: AppSpacing.md),
           Text(_error!, style: AppTextStyles.body.copyWith(color: AppColors.danger)),
         ],
-        const SizedBox(height: AppSpacing.md),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _isLoading ? null : _review,
-            icon: _isLoading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.auto_awesome_rounded),
-            label: Text(_isLoading ? 'Pharmacist is reviewing…' : 'Review Pharmacotherapy Suggestion'),
-          ),
-        ),
         if (_result != null) ...[
           const SizedBox(height: AppSpacing.lg),
           if (_result!.urgentAssessmentRequired)
@@ -438,6 +453,30 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
             ),
         ],
       ],
+    );
+  }
+
+  Widget _buildReviewFooter() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.slate900 : Colors.white,
+        border: Border(top: BorderSide(color: isDark ? AppColors.slate700 : AppColors.slate200)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _isLoading ? null : _review,
+            icon: _isLoading
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.auto_awesome_rounded),
+            label: Text(_isLoading ? 'Pharmacist is reviewing…' : 'Review Pharmacotherapy Suggestion'),
+          ),
+        ),
+      ),
     );
   }
 }

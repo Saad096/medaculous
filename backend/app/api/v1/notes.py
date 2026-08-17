@@ -166,6 +166,22 @@ async def list_trash(user: User = Depends(get_current_user), db: AsyncSession = 
     return list(result.scalars().all())
 
 
+@router.delete("/trash", status_code=status.HTTP_204_NO_CONTENT)
+async def empty_trash(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> None:
+    # Registered before /{note_id} for the same routing reason as GET /trash
+    # above — a static path must be matched before the {note_id} pattern.
+    result = await db.execute(select(Note).where(Note.user_id == user.id, Note.is_deleted.is_(True)))
+    trashed = list(result.scalars().all())
+    for note in trashed:
+        await db.delete(note)
+    await db.commit()
+    for note in trashed:
+        try:
+            await search_service.delete_by_source(user_id=str(user.id), source_type="note", source_id=str(note.id))
+        except Exception:
+            logger.warning("Failed to remove search index entries for purged note %s", note.id, exc_info=True)
+
+
 @router.post("/{note_id}/restore", response_model=NoteOut)
 async def restore_note(
     note_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)

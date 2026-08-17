@@ -72,6 +72,7 @@ class TopicMetaUpdate(BaseModel):
     notes: str | None = None
     checklists: list | None = None
     is_bookmarked: bool | None = None
+    difficulty: str | None = None
 
 
 class SpecialtyCreate(BaseModel):

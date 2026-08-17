@@ -110,9 +110,15 @@ Return a JSON object with exactly these properties:
     try:
         # A tiered recommendation list with clinical references per drug runs
         # much longer than the other pharmacy endpoints — the default 4096
-        # cap truncated the JSON mid-object in testing.
+        # cap truncated the JSON mid-object in testing. A broad multi-symptom
+        # query (e.g. 6-7 complaints at once) generates proportionally more
+        # recommendation entries, so even 8192 truncated mid-response and
+        # came back as a 502 (found live, 2026-08-17) — scale the budget with
+        # how many symptoms were actually entered instead of a flat cap.
+        symptom_count = len([s for s in body.symptoms.split(",") if s.strip()])
+        max_tokens = min(8192 + max(0, symptom_count - 2) * 2000, 32000)
         data = await generate_json(
-            system=_PHARMACIST_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, max_tokens=8192
+            system=_PHARMACIST_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, max_tokens=max_tokens
         )
         return RecommendationResponse.model_validate(data)
     except (LLMJsonError, ValidationError) as exc:
