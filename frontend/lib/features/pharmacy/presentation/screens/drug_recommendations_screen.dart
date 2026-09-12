@@ -5,6 +5,7 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/ai_analyzing_progress_bar.dart';
 import '../../../../core/widgets/nav_shell.dart';
 import '../../../settings/presentation/widgets/usage_limit_dialog.dart';
 import '../../domain/pharmacy.dart';
@@ -582,9 +583,10 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab>
           width: double.infinity,
           height: 48,
           child: _isLoading
-              ? _AnalyzingProgressBar(
+              ? AiAnalyzingProgressBar(
                   animation: _progressController,
                   progressValue: () => _cappedProgress,
+                  label: 'Pharmacist is reviewing…',
                 )
               : FilledButton.icon(
                   onPressed: _review,
@@ -592,58 +594,6 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab>
                   label: const Text('Review Pharmacotherapy Suggestion'),
                 ),
         ),
-      ),
-    );
-  }
-}
-
-/// Replaces the submit button while the AI call is in flight — owner
-/// feedback, 2026-09-11: a broad query can take over a minute, and a plain
-/// spinner gave no sense of progress. There's no real server-reported
-/// progress to show (a single blocking call, not a stream), so this fills
-/// against a time estimate instead, hard-capped below 100% until the real
-/// response actually arrives (see _PharmacistTabState._cappedProgress —
-/// a first version let the bar reach 100% purely from time passing while
-/// the backend was still working).
-class _AnalyzingProgressBar extends StatelessWidget {
-  const _AnalyzingProgressBar({required this.animation, required this.progressValue});
-
-  /// Ticks the rebuild — the actual displayed fraction always comes from
-  /// [progressValue], since it depends on more than just the animation's
-  /// raw value (see _PharmacistTabState._cappedProgress).
-  final Listenable animation;
-  final double Function() progressValue;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadii.pill),
-      child: Stack(
-        alignment: Alignment.centerLeft,
-        children: [
-          // A dark indigo base (not the light/dark surface color) so the
-          // white label stays readable throughout — the gradient fill is
-          // the same hue family, just brighter, rather than contrasting
-          // against a light, hard-to-read track early in the animation.
-          const ColoredBox(color: Color(0xFF1E1B4B)),
-          AnimatedBuilder(
-            animation: animation,
-            builder: (context, child) => FractionallySizedBox(
-              widthFactor: progressValue().clamp(0.0, 1.0),
-              child: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(colors: [AppColors.aiIndigo, AppColors.primary]),
-                ),
-              ),
-            ),
-          ),
-          const Align(
-            child: Text(
-              'Pharmacist is reviewing…',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-          ),
-        ],
       ),
     );
   }

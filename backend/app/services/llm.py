@@ -20,6 +20,7 @@ from enum import Enum
 from functools import lru_cache
 
 from anthropic import AsyncAnthropic
+from pydantic import BaseModel, ValidationError
 
 from app.core.config import settings
 
@@ -104,6 +105,7 @@ async def generate_json(
     user_message: str,
     tier: ModelTier = ModelTier.SONNET,
     max_tokens: int = 4096,
+    response_model: type[BaseModel] | None = None,
 ) -> dict:
     """One-shot completion constrained to a single JSON object.
 
@@ -118,6 +120,21 @@ async def generate_json(
       larger budget instead.
     - Any other parse failure (stray prose, code fences) is a formatting
       issue the nudge actually addresses, so that retry path is unchanged.
+
+    `response_model`, if given, is validated against the parsed dict *inside*
+    this same retry loop (constructed only to check the shape — the return
+    value is still the plain dict, callers validate again for real). Found
+    live, 2026-09-13: every pharmacy/symptom-checker call site validates the
+    result against a strict Pydantic schema right after calling this
+    function, but a schema mismatch (one missing/wrong-type field in an
+    otherwise large structured response — very plausible across 8+
+    recommendation items each with a dozen required fields) is a
+    `ValidationError` raised *outside* generate_json entirely, so it never
+    got this retry at all — the very first shape hiccup was an immediate,
+    unretried 502. Folding validation into this loop means a shape mismatch
+    gets exactly the same "nudge and retry once" treatment as a formatting
+    mistake, instead of failing the whole request over something the retry
+    would likely have fixed anyway.
     LLMJsonError bubbles up to a 502 per master spec's "transparent UI
     states" — never silently return a wrong shape.
     """
@@ -129,11 +146,19 @@ async def generate_json(
             system=json_system, user_message=user_message, tier=tier, max_tokens=current_max_tokens
         )
         try:
-            return _parse_json_response(raw)
-        except (json.JSONDecodeError, ValueError):
+            data = _parse_json_response(raw)
+            if response_model is not None:
+                response_model.model_validate(data)
+            return data
+        except (json.JSONDecodeError, ValueError, ValidationError) as exc:
             if attempt == 0:
                 if stop_reason == "max_tokens":
                     current_max_tokens = min(current_max_tokens * 2, 64000)
+                elif isinstance(exc, ValidationError):
+                    json_system += (
+                        f"\n\nYour previous response did not match the required shape: {exc}. "
+                        "Return ONLY a JSON object matching the requested schema exactly, with every required field present."
+                    )
                 else:
                     json_system += "\n\nYour previous response was not valid JSON. Return ONLY the JSON object, nothing else."
                 continue

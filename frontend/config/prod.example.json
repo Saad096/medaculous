@@ -1,4 +1,4 @@
 {
-  "API_BASE_URL": "http://178.104.13.19:8001/api/v1",
+  "API_BASE_URL": "http://178.104.13.19:8000/api/v1",
   "APP_ENV": "prod"
 }

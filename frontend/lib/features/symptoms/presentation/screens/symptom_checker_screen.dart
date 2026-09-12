@@ -6,6 +6,7 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../../../core/widgets/ai_analyzing_progress_bar.dart';
 import '../../../../core/widgets/app_bottom_nav.dart';
 import '../../../../core/widgets/nav_shell.dart';
 import '../../../settings/presentation/widgets/usage_limit_dialog.dart';
@@ -41,7 +42,8 @@ class SymptomCheckerScreen extends ConsumerStatefulWidget {
       _SymptomCheckerScreenState();
 }
 
-class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
+class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen>
+    with SingleTickerProviderStateMixin {
   final _symptomController = TextEditingController();
   final _ageController = TextEditingController();
   final _durationController = TextEditingController();
@@ -52,11 +54,73 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
   String? _error;
   SymptomCheckResult? _result;
 
+  // Same fix as Drug Recommendations (owner feedback, 2026-09-11 there,
+  // 2026-09-13 here): there's no real server-reported progress for a single
+  // blocking AI call, so the bar fills against a time estimate but is
+  // hard-capped below 100% until the real response is actually in hand —
+  // never just because the estimated duration elapsed.
+  static const _estimatedDuration = Duration(minutes: 10);
+  static const _loadingCap = 0.92;
+  bool _snapToComplete = false;
+  late final AnimationController _progressController = AnimationController(
+    vsync: this,
+    duration: _estimatedDuration,
+  );
+  late final Animation<double> _rawProgress = CurvedAnimation(
+    parent: _progressController,
+    curve: Curves.easeOutQuart,
+  );
+  double get _cappedProgress =>
+      _snapToComplete ? _rawProgress.value : _rawProgress.value.clamp(0.0, _loadingCap);
+
+  // Same scroll UX as Drug Recommendations: jump to where the response
+  // starts once it lands, and offer a floating "scroll to bottom" button.
+  final _scrollController = ScrollController();
+  final _resultsStartKey = GlobalKey();
+  bool _showScrollToBottom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_updateScrollToBottomVisibility);
+  }
+
+  void _updateScrollToBottomVisibility() {
+    if (!_scrollController.hasClients || _result == null) return;
+    final position = _scrollController.position;
+    final nearBottom = position.pixels >= position.maxScrollExtent - 24;
+    if (nearBottom == _showScrollToBottom) {
+      setState(() => _showScrollToBottom = !nearBottom);
+    }
+  }
+
+  Future<void> _scrollToResultsStart() async {
+    final resultsContext = _resultsStartKey.currentContext;
+    if (resultsContext == null) return;
+    await Scrollable.ensureVisible(
+      resultsContext,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOut,
+      alignment: 0,
+    );
+  }
+
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   void dispose() {
     _symptomController.dispose();
     _ageController.dispose();
     _durationController.dispose();
+    _progressController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -82,7 +146,10 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
       _isLoading = true;
       _error = null;
       _result = null;
+      _snapToComplete = false;
+      _showScrollToBottom = false;
     });
+    _progressController.forward(from: 0);
     try {
       final result = await ref
           .read(symptomsApiProvider)
@@ -93,7 +160,16 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
             duration: _durationController.text.trim(),
           );
       if (!mounted) return;
-      setState(() => _result = result);
+      // Only past this point is the bar allowed to actually show 100% —
+      // it's known the real answer is in hand, not just that time passed.
+      _snapToComplete = true;
+      await _progressController.animateTo(1, duration: const Duration(milliseconds: 250));
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _showScrollToBottom = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToResultsStart());
     } on ApiException catch (e) {
       if (!mounted) return;
       if (e.statusCode == 429) {
@@ -102,6 +178,7 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
         setState(() => _error = e.message);
       }
     } finally {
+      _progressController.stop();
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -115,6 +192,7 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
       _durationController.clear();
       _sex = null;
       _error = null;
+      _showScrollToBottom = false;
     });
   }
 
@@ -137,17 +215,10 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
     return NavShell(
       current: AppNavTab.symptoms,
       appBar: AppBar(
-        // Always a real, visible back arrow — not just the hardware/gesture
-        // back button, which a lot of users never think to try. On the form
-        // it returns to Home (this is a bottom-nav tab root, so there's
-        // nothing else to go back to); once results replace the form
-        // in-place, it returns to the form instead of leaving the user
-        // stuck on the results view with only a small "New Check" text
-        // button as their way out.
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
-          tooltip: _result != null ? 'Back to symptoms' : 'Back to Home',
-          onPressed: _result != null ? _reset : () => context.go('/home'),
+          tooltip: 'Back to Home',
+          onPressed: () => context.go('/home'),
         ),
         title: const Text('AI Symptom Checker'),
         actions: [
@@ -156,172 +227,179 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
         ],
       ),
       body: SafeArea(
-        child: _result != null ? _buildResults(_result!) : _buildForm(),
+        child: Column(
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  _buildForm(context),
+                  if (_showScrollToBottom)
+                    Positioned(
+                      bottom: AppSpacing.md,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: FloatingActionButton.small(
+                          heroTag: 'symptomCheckerScrollDown',
+                          onPressed: _scrollToBottom,
+                          child: const Icon(Icons.keyboard_arrow_down_rounded),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            _buildAnalyzeFooter(),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildForm() {
-    // Pinned footer instead of ending the scrollable form — owner feedback,
-    // 2026-08-17: same fix as Drug Recommendations' submit button, which
-    // could end up under the auto-hide nav bar when it was the last item in
-    // a scrollable list instead of a fixed row above it.
-    return Column(
-      children: [
-        Expanded(child: _buildFormFields()),
-        _buildAnalyzeFooter(),
-      ],
-    );
-  }
-
-  Widget _buildFormFields() {
-    return SingleChildScrollView(
+  Widget _buildForm(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ListView(
+      controller: _scrollController,
       padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'What symptoms are you experiencing?',
-            style: AppTextStyles.title,
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Add one or more symptoms below.',
-            style: AppTextStyles.caption.copyWith(color: context.secondaryText),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _symptomController,
-                  onSubmitted: (_) => _addSymptom(),
-                  decoration: const InputDecoration(
-                    hintText: 'e.g. chest pain, shortness of breath',
-                    border: OutlineInputBorder(),
-                  ),
+      children: [
+        Text(
+          'What symptoms are you experiencing?',
+          style: AppTextStyles.title,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          'Add one or more symptoms below.',
+          style: AppTextStyles.caption.copyWith(color: context.secondaryText),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _symptomController,
+                onSubmitted: (_) => _addSymptom(),
+                decoration: const InputDecoration(
+                  hintText: 'e.g. chest pain, shortness of breath',
+                  border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(width: AppSpacing.sm),
-              IconButton.filled(
-                onPressed: () => _addSymptom(),
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          if (_symptoms.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Wrap(
-              spacing: AppSpacing.sm,
-              runSpacing: AppSpacing.sm,
-              children: [
-                for (final symptom in _symptoms)
-                  Chip(
-                    label: Text(symptom),
-                    onDeleted: () => _removeSymptom(symptom),
-                    shape: const StadiumBorder(),
-                  ),
-              ],
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            IconButton.filled(
+              onPressed: () => _addSymptom(),
+              icon: const Icon(Icons.add),
             ),
           ],
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            'QUICK ADD',
-            style: AppTextStyles.micro.copyWith(color: context.secondaryText),
-          ),
+        ),
+        if (_symptoms.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.sm),
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              for (final symptom in _quickSymptoms)
-                ActionChip(
+              for (final symptom in _symptoms)
+                Chip(
                   label: Text(symptom),
-                  onPressed: () => _addSymptom(symptom),
+                  onDeleted: () => _removeSymptom(symptom),
                   shape: const StadiumBorder(),
                 ),
             ],
           ),
-          const SizedBox(height: AppSpacing.lg),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? AppColors.slate800
-                  : AppColors.slate50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.slate700
-                    : AppColors.slate200,
+        ],
+        const SizedBox(height: AppSpacing.lg),
+        Text(
+          'QUICK ADD',
+          style: AppTextStyles.micro.copyWith(color: context.secondaryText),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          children: [
+            for (final symptom in _quickSymptoms)
+              ActionChip(
+                label: Text(symptom),
+                onPressed: () => _addSymptom(symptom),
+                shape: const StadiumBorder(),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'PATIENT INFO (OPTIONAL)',
-                  style: AppTextStyles.micro.copyWith(
-                    color: context.secondaryText,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _ageController,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Age',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _sex,
-                        decoration: const InputDecoration(
-                          labelText: 'Sex',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(value: 'Male', child: Text('Male')),
-                          DropdownMenuItem(
-                            value: 'Female',
-                            child: Text('Female'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Other',
-                            child: Text('Other'),
-                          ),
-                        ],
-                        onChanged: (value) => setState(() => _sex = value),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                TextField(
-                  controller: _durationController,
-                  decoration: const InputDecoration(
-                    labelText: 'Duration (e.g. 3 days, 2 weeks)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.slate800 : AppColors.slate50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark ? AppColors.slate700 : AppColors.slate200,
             ),
           ),
-          if (_error != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              _error!,
-              style: AppTextStyles.body.copyWith(color: AppColors.danger),
-            ),
-          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'PATIENT INFO (OPTIONAL)',
+                style: AppTextStyles.micro.copyWith(
+                  color: context.secondaryText,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _ageController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Age',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _sex,
+                      decoration: const InputDecoration(
+                        labelText: 'Sex',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'Male', child: Text('Male')),
+                        DropdownMenuItem(
+                          value: 'Female',
+                          child: Text('Female'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Other',
+                          child: Text('Other'),
+                        ),
+                      ],
+                      onChanged: (value) => setState(() => _sex = value),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _durationController,
+                decoration: const InputDecoration(
+                  labelText: 'Duration (e.g. 3 days, 2 weeks)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            _error!,
+            style: AppTextStyles.body.copyWith(color: AppColors.danger),
+          ),
         ],
-      ),
+        if (_result != null) _buildResults(context, _result!),
+      ],
     );
   }
 
@@ -337,30 +415,32 @@ class _SymptomCheckerScreenState extends ConsumerState<SymptomCheckerScreen> {
         top: false,
         child: SizedBox(
           width: double.infinity,
-          child: FilledButton(
-            onPressed: _isLoading ? null : _analyze,
-            child: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Text('Analyze Symptoms'),
-          ),
+          height: 48,
+          child: _isLoading
+              ? AiAnalyzingProgressBar(
+                  animation: _progressController,
+                  progressValue: () => _cappedProgress,
+                  label: 'Analyzing symptoms…',
+                )
+              : FilledButton(
+                  onPressed: _analyze,
+                  child: const Text('Analyze Symptoms'),
+                ),
         ),
       ),
     );
   }
 
-  Widget _buildResults(SymptomCheckResult result) {
+  Widget _buildResults(BuildContext context, SymptomCheckResult result) {
     // This tinted container sits directly on the (theme-following) page
     // background, not a fixed light card, so its text must flip with
     // brightness — `slate900` alone is invisible against the near-black
     // tinted background in dark mode.
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.md),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SizedBox(key: _resultsStartKey, height: AppSpacing.lg),
         Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(

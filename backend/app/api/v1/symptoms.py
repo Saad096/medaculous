@@ -46,7 +46,11 @@ Return a JSON object with exactly these two properties:
 """
     try:
         data = await generate_json(
-            system=_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, max_tokens=8192
+            system=_SYSTEM_PROMPT,
+            user_message=prompt,
+            tier=ModelTier.SONNET,
+            max_tokens=8192,
+            response_model=SymptomCheckResponse,
         )
         return SymptomCheckResponse.model_validate(data)
     except (LLMJsonError, ValidationError) as exc:

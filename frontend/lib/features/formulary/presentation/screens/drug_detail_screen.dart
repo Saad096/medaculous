@@ -374,23 +374,43 @@ class _DrugSectionCell extends StatelessWidget {
               child: Icon(section.icon, color: section.iconColor, size: 18),
             ),
             const SizedBox(height: 6),
-            // FittedBox shrinks the whole word to fit one line instead of
-            // wrapping — a plain 2-line wrap could leave a single orphan
-            // character (e.g. "Pharmacokinetic" / "s") on its own line,
-            // which reads as broken (owner feedback, 2026-09-11, same fix
-            // already applied to the Systems icon grid).
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                section.title,
-                textAlign: TextAlign.center,
-                softWrap: false,
-                style: AppTextStyles.micro.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : AppColors.cardTitleText,
-                ),
-              ),
-            ),
+            // A one-word title (e.g. "Pharmacokinetics", "Contraindications")
+            // has no space to wrap at, so a plain 2-line wrap could leave a
+            // single orphan character on its own line (e.g. "Pharmacokinetic"
+            // / "s") — FittedBox shrinking the whole word onto one line
+            // instead fixes that (owner feedback, 2026-09-11).
+            //
+            // But forcing that same single-line-then-shrink treatment onto a
+            // multi-word title (e.g. "Pregnancy & Lactation") shrinks it far
+            // more than it needs — a plain 2-line wrap already breaks
+            // cleanly at the word boundary, so it renders noticeably smaller
+            // than shorter one-word titles like "Dosage" for no reason
+            // (owner feedback, 2026-09-13: "this box text size is smaller
+            // than others"). Only reach for the shrink-to-fit treatment when
+            // there's no space to wrap at in the first place.
+            section.title.contains(' ')
+                ? Text(
+                    section.title,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.micro.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : AppColors.cardTitleText,
+                    ),
+                  )
+                : FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      section.title,
+                      textAlign: TextAlign.center,
+                      softWrap: false,
+                      style: AppTextStyles.micro.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : AppColors.cardTitleText,
+                      ),
+                    ),
+                  ),
           ],
         ),
       ),

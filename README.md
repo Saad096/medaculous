@@ -352,7 +352,7 @@ adb reverse tcp:8000 tcp:8000
 flutter run --dart-define=API_BASE_URL=http://localhost:8000/api/v1
 
 # Any device, backend on a remote server by IP address (this project's current VM):
-flutter run --dart-define=API_BASE_URL=http://178.104.13.19:8001/api/v1
+flutter run --dart-define=API_BASE_URL=http://178.104.13.19:8000/api/v1
 
 # Any device, backend behind a real domain (recommended for production — also
 # required if you want https:// instead of a bare IP):
@@ -436,12 +436,12 @@ port chosen for it as a result:
 | 50051 | `0.0.0.0` (public) | `mih-whispercpp` — unrelated app, already there |
 | 3004, 8050, 5442, 6389 | `127.0.0.1` (loopback only) | the `maktab` stack — unrelated app, already there |
 | 5432 | `127.0.0.1` (loopback only) | **Medaculous's own Postgres**, installed as a system service per §6a — free on this VM, not used by anything else (the `maktab` stack has its own separate containerized Postgres on 5442, not 5432) |
-| **8001** | `0.0.0.0` (public) | **Medaculous backend** — this is the one port that needs opening in the firewall (step 3 below) |
+| **8000** | `0.0.0.0` (public) | **Medaculous backend** — this is the one port that needs opening in the firewall (step 3 below) |
 
-Medaculous's backend uses **8001**, not the `8000` used everywhere else in this README
-for local dev, purely because that's the free port on this specific shared VM — it's a
-per-machine choice, not a code difference. That's exactly what the root-level `.env`
-from §6/§6a exists for:
+`8000` also happens to be the same port used everywhere else in this README for local
+dev — it was free on this VM too, so there was no need to override it. On a VM where
+8000 *is* already taken by something else, that's exactly what `BACKEND_PORT` in the
+root-level `.env` from §6/§6a is for — override it there, nothing in the code changes:
 
 ```bash
 # On the VM, in the repo root (alongside docker-compose.yml):
@@ -449,11 +449,12 @@ cp .env.example .env
 ```
 ```bash
 # .env — match whatever Postgres user/password you create for Medaculous in §6a on
-# this VM, and set the port to the one this VM's plan above says is free:
-DB_USER=medaculous
-DB_PASSWORD=<pick a real password, not a placeholder>
+# this VM. This deployment kept the same saad/medaculous defaults as local dev and
+# left BACKEND_PORT at its default (8000); only change these if your VM differs.
+DB_USER=saad
+DB_PASSWORD=<saad's real password on this VM>
 DB_NAME=medaculous
-BACKEND_PORT=8001
+BACKEND_PORT=8000
 ```
 
 ### Steps
@@ -462,26 +463,26 @@ BACKEND_PORT=8001
    `git clone` your GitHub repo directly on the VM (or `scp`/`rsync` if you'd rather not
    involve GitHub). Then follow **§6** (Docker, recommended) or **§6b** (no Docker) above,
    on the VM itself.
-2. Set `APP_BASE_URL` in `backend/.env` to `http://178.104.13.19:8001` (the VM's real
+2. Set `APP_BASE_URL` in `backend/.env` to `http://178.104.13.19:8000` (the VM's real
    address **and** the port from the plan above), not `localhost`.
 3. **Open the port.** This trips people up more than anything else here — the backend
    can be running perfectly and still be unreachable from your phone because nothing
-   let the port through. On this VM specifically, that's **8001/tcp**:
+   let the port through. On this VM specifically, that's **8000/tcp**:
    - **Hetzner Cloud Firewall** (this is the one people forget, since it's a separate
      panel from the VM itself): in the Hetzner Cloud Console, under this server's
-     **Firewalls**, add an inbound rule allowing TCP port **8001** from `0.0.0.0/0` (or
+     **Firewalls**, add an inbound rule allowing TCP port **8000** from `0.0.0.0/0` (or
      your own IP, if you'd rather restrict it). A different cloud provider calls this
      Security Groups (AWS), Firewall Rules (GCP), or Network Security Groups (Azure) —
      same idea, different name, wherever else this ever gets deployed.
    - **The VM's own firewall**, if it has one active:
      ```bash
-     sudo ufw allow 8001/tcp     # Ubuntu/Debian with ufw
+     sudo ufw allow 8000/tcp     # Ubuntu/Debian with ufw
      ```
    - Confirm the app is actually listening on all interfaces, not just the VM's internal
      loopback — it already is by default here (`--host 0.0.0.0` in both the Docker CMD
      and the bare `uvicorn` command above), but double-check if you ever change that.
 4. For production, prefer a real domain + HTTPS over a bare IP: point a domain's DNS at
-   the VM, put a reverse proxy (nginx, Caddy) in front of port 8001 to terminate TLS, and
+   the VM, put a reverse proxy (nginx, Caddy) in front of port 8000 to terminate TLS, and
    use `https://your-domain.com/api/v1` as the mobile app's `API_BASE_URL`. Sending
    passwords/tokens over plain `http://` to a public IP is fine for a quick test, not for
    anything real — this is worth doing before the app goes to real users, not just a
@@ -496,7 +497,7 @@ BACKEND_PORT=8001
 6. **Load the reference content** (only needed once, on a fresh database — see below).
 7. Rebuild the Flutter app pointed at the VM's real address before installing it on any
    device meant to use the deployed backend — see §6c (`frontend/config/prod.json` already
-   points at `http://178.104.13.19:8001/api/v1`). A dev build pointed at
+   points at `http://178.104.13.19:8000/api/v1`). A dev build pointed at
    `localhost`/`10.0.2.2` will never reach a remote VM; that's a build-time flag, not
    something that auto-detects the server.
 
@@ -514,9 +515,16 @@ throughout this README):
 psql -h localhost -U saad -d medaculous -f backend/seed_data.sql
 ```
 
-It's safe to re-run — every table it touches is content-only (no user accounts, notes, or
-anything else of yours), and running it twice just re-inserts the same rows with the same
-IDs.
+**Run it exactly once per database — it is NOT safe to re-run.** It's a `pg_dump`-style
+file using `COPY`, not `INSERT ... ON CONFLICT`, so a second run fails every table with
+"duplicate key value violates unique constraint" (harmless — it doesn't corrupt or
+duplicate the data already loaded, it just can't add it again). You'll also see a handful
+of `permission denied: "RI_ConstraintTrigger_..." is a system trigger` errors even on the
+very first run — those are expected too: the dump's `DISABLE/ENABLE TRIGGER ALL`
+housekeeping statements need Postgres superuser, which a normal app role (like `saad`)
+doesn't have, but that doesn't block the actual `COPY` statements around them. Look for
+`COPY <number>` lines (e.g. `COPY 15`, `COPY 444`) to confirm the real data landed — if
+you see those, it worked, regardless of how many trigger-permission errors surround them.
 
 ### Applying this round of updates specifically
 
@@ -550,8 +558,8 @@ reusing `.env`'s value verbatim.
 
 **"`curl http://localhost:<port>/docs` works on the VM itself, but not from my
 phone/laptop"** → Almost always the cloud firewall / security group from §8 step 3, not
-the app (on this project's current VM, `<port>` is `8001` — see §8's port plan). Test
-from *outside* the VM with `curl http://178.104.13.19:8001/docs` (from your own laptop,
+the app (on this project's current VM, `<port>` is `8000` — see §8's port plan). Test
+from *outside* the VM with `curl http://178.104.13.19:8000/docs` (from your own laptop,
 not SSH'd into the VM) — if that hangs/times out, it's the firewall; if it returns a
 response but the phone still can't reach it, check the phone is actually online and not
 on a network that blocks that port.

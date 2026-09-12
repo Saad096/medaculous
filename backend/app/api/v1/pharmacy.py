@@ -126,7 +126,11 @@ Return a JSON object with exactly these properties:
         symptom_count = len([s for s in body.symptoms.split(",") if s.strip()])
         max_tokens = min(16384 + max(0, symptom_count - 2) * 2500, 32000)
         data = await generate_json(
-            system=_PHARMACIST_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, max_tokens=max_tokens
+            system=_PHARMACIST_SYSTEM_PROMPT,
+            user_message=prompt,
+            tier=ModelTier.SONNET,
+            max_tokens=max_tokens,
+            response_model=RecommendationResponse,
         )
         return RecommendationResponse.model_validate(data)
     except (LLMJsonError, ValidationError) as exc:
@@ -146,7 +150,9 @@ Return a JSON object with exactly these properties:
 - "clinical_tip": short piece of advice for healthcare professionals
 """
     try:
-        data = await generate_json(system=_INTERACTION_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET)
+        data = await generate_json(
+            system=_INTERACTION_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, response_model=InteractionResponse
+        )
         return InteractionResponse.model_validate(data)
     except (LLMJsonError, ValidationError) as exc:
         raise HTTPException(
@@ -163,7 +169,9 @@ Return a JSON object with exactly one property, "substitutes": an array of objec
 - "cost_tier": one of "$", "$$", "$$$"
 """
     try:
-        data = await generate_json(system=_SUBSTITUTE_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET)
+        data = await generate_json(
+            system=_SUBSTITUTE_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, response_model=SubstituteResponse
+        )
         return SubstituteResponse.model_validate(data)
     except (LLMJsonError, ValidationError) as exc:
         raise HTTPException(
