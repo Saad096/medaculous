@@ -115,8 +115,16 @@ Return a JSON object with exactly these properties:
         # recommendation entries, so even 8192 truncated mid-response and
         # came back as a 502 (found live, 2026-08-17) — scale the budget with
         # how many symptoms were actually entered instead of a flat cap.
+        # Base raised 8192 -> 16384 (owner feedback, 2026-09-11): even a
+        # plain 4-symptom query was truncating at the old 8192-derived
+        # budget (12192 tokens) and needing generate_json's doubling retry,
+        # which means a second ~90-110s Anthropic call on top of the first —
+        # the actual cause of that request eventually exceeding the client's
+        # timeout, not an API key or auth problem. A more generous first
+        # attempt makes that slow, avoidable second round-trip far less
+        # common in ordinary use.
         symptom_count = len([s for s in body.symptoms.split(",") if s.strip()])
-        max_tokens = min(8192 + max(0, symptom_count - 2) * 2000, 32000)
+        max_tokens = min(16384 + max(0, symptom_count - 2) * 2500, 32000)
         data = await generate_json(
             system=_PHARMACIST_SYSTEM_PROMPT, user_message=prompt, tier=ModelTier.SONNET, max_tokens=max_tokens
         )

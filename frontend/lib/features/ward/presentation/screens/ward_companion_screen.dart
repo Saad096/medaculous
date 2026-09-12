@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -282,6 +283,36 @@ class _StartShiftFormState extends State<_StartShiftForm> {
   }
 }
 
+/// Silently strips anything that isn't a digit — like
+/// FilteringTextInputFormatter.digitsOnly — but also lets the caller show a
+/// short, friendly nudge the moment a non-digit is actually rejected, rather
+/// than a keystroke just mysteriously doing nothing (owner feedback,
+/// 2026-09-12: age should only accept numbers, with a nice popup explaining
+/// why when something else is typed). Throttled so pasting or holding down a
+/// letter key doesn't fire a toast per rejected character.
+class _DigitsOnlyFormatter extends TextInputFormatter {
+  _DigitsOnlyFormatter({required this.onRejected});
+
+  final VoidCallback onRejected;
+  DateTime? _lastNotified;
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final filtered = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (filtered == newValue.text) return newValue;
+
+    final now = DateTime.now();
+    if (_lastNotified == null || now.difference(_lastNotified!) > const Duration(seconds: 2)) {
+      _lastNotified = now;
+      onRejected();
+    }
+    return TextEditingValue(
+      text: filtered,
+      selection: TextSelection.collapsed(offset: filtered.length),
+    );
+  }
+}
+
 class _PatientsTab extends ConsumerWidget {
   const _PatientsTab({required this.patients, required this.onReload});
 
@@ -296,6 +327,12 @@ class _PatientsTab extends ConsumerWidget {
     final diagnosisController = TextEditingController(text: existing?.diagnosis ?? '');
     final coMorbidsController = TextEditingController(text: existing?.coMorbids ?? '');
     final notesController = TextEditingController(text: existing?.notes ?? '');
+    // A fresh formatter instance per dialog open (not per rebuild) so its
+    // own toast-throttle state survives the dialog's StatefulBuilder
+    // rebuilding for unrelated reasons, e.g. the sex dropdown changing.
+    final ageFormatter = _DigitsOnlyFormatter(
+      onRejected: () => showAppToast(context, 'Age must be a number', kind: AppToastKind.info),
+    );
     var sex = existing?.sex ?? 'Male';
     var dnar = existing?.dnar ?? false;
 
@@ -312,7 +349,14 @@ class _PatientsTab extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.sm),
                 Row(
                   children: [
-                    Expanded(child: TextField(controller: ageController, decoration: const InputDecoration(labelText: 'Age'))),
+                    Expanded(
+                      child: TextField(
+                        controller: ageController,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [ageFormatter],
+                        decoration: const InputDecoration(labelText: 'Age'),
+                      ),
+                    ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
                       child: DropdownButtonFormField<String>(
@@ -421,13 +465,11 @@ class _PatientsTab extends ConsumerWidget {
                     margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                     child: ListTile(
                       onTap: () => _openPatientForm(context, ref, p),
-                      leading: CircleAvatar(
-                        backgroundColor: p.reviewed ? AppColors.success.withValues(alpha: 0.15) : AppColors.slate200,
-                        child: Icon(
-                          p.reviewed ? Icons.check_rounded : Icons.person_outline_rounded,
-                          color: p.reviewed ? AppColors.success : AppColors.slate500,
-                        ),
-                      ),
+                      // A gender icon at a glance instead of a generic grey
+                      // person outline (owner feedback, 2026-09-12) — reviewed
+                      // status moves to a small corner badge instead of
+                      // replacing the icon outright, so both are visible.
+                      leading: _PatientAvatar(sex: p.sex, reviewed: p.reviewed),
                       title: Row(
                         children: [
                           Text(p.initials, style: AppTextStyles.bodyStrong),
@@ -463,6 +505,50 @@ class _PatientsTab extends ConsumerWidget {
                 );
               },
             ),
+    );
+  }
+}
+
+/// Male/female icon at a glance instead of a generic grey person outline —
+/// owner feedback, 2026-09-12. Reviewed status is a small green check badge
+/// in the corner rather than replacing the gender icon outright, so a
+/// glance at the list still shows both at once.
+class _PatientAvatar extends StatelessWidget {
+  const _PatientAvatar({required this.sex, required this.reviewed});
+
+  final String sex;
+  final bool reviewed;
+
+  @override
+  Widget build(BuildContext context) {
+    final isFemale = sex.toLowerCase() == 'female';
+    final color = isFemale ? AppColors.aiPink : AppColors.primary;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.15),
+          child: Icon(
+            isFemale ? Icons.woman_rounded : Icons.man_rounded,
+            color: color,
+          ),
+        ),
+        if (reviewed)
+          Positioned(
+            right: -2,
+            bottom: -2,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: AppColors.success,
+                shape: BoxShape.circle,
+                border: Border.all(color: Theme.of(context).cardColor, width: 1.5),
+              ),
+              child: const Icon(Icons.check_rounded, size: 11, color: Colors.white),
+            ),
+          ),
+      ],
     );
   }
 }

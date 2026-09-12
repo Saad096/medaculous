@@ -20,12 +20,12 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  // Shortened from 1100ms (owner feedback, 2026-08-15: splash held the
-  // screen too long) — still long enough to read as an intentional reveal,
-  // short enough that a fast session check doesn't feel like a stall.
+  // Lengthened back from 550ms (owner feedback, 2026-09-11: the reveal felt
+  // too quick/short) — long enough for the large-to-small logo shrink to
+  // actually read as an intentional animation rather than a flicker.
   late final AnimationController _reveal = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 550),
+    duration: const Duration(milliseconds: 1400),
   )..forward();
 
   // Gentle infinite pulse on the glow, separate from the one-shot reveal.
@@ -38,11 +38,15 @@ class _SplashScreenState extends State<SplashScreen>
     parent: _reveal,
     curve: const Interval(0.0, 0.55, curve: Curves.easeOut),
   );
-  late final Animation<double> _logoScale = Tween<double>(begin: 0.8, end: 1.0)
+  // Starts large and shrinks down to its resting size — owner feedback,
+  // 2026-09-11: logo should be "large before small", not the previous small
+  // pop-in-to-full-size effect. easeOutCubic (no overshoot) so a shrink
+  // reads as smooth rather than bouncy.
+  late final Animation<double> _logoScale = Tween<double>(begin: 1.6, end: 1.0)
       .animate(
         CurvedAnimation(
           parent: _reveal,
-          curve: const Interval(0.0, 0.6, curve: Curves.easeOutBack),
+          curve: const Interval(0.0, 0.7, curve: Curves.easeOutCubic),
         ),
       );
   late final Animation<double> _textFade = CurvedAnimation(
@@ -107,12 +111,16 @@ class _SplashScreenState extends State<SplashScreen>
                                 child: child,
                               );
                             },
+                            // The GIF's own frames carry the motion — Flutter
+                            // decodes and plays animated GIFs natively via
+                            // Image.asset, no extra package needed.
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(32),
                               child: Image.asset(
-                                'assets/images/logo.png',
+                                'assets/images/logo_animated.gif',
                                 width: 120,
                                 height: 120,
+                                fit: BoxFit.cover,
                               ),
                             ),
                           ),

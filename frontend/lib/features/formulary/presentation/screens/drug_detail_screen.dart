@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_exception.dart';
@@ -22,6 +23,20 @@ class DrugDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<DrugDetailScreen> createState() => _DrugDetailScreenState();
 }
 
+/// Follows the sheet's own light/dark text color (unlike chat_screen.dart's
+/// AI-bubble stylesheet, which is pinned to a fixed light card) since this
+/// content sits directly on the app's themed bottom sheet background.
+MarkdownStyleSheet _sectionMarkdownStyleSheet(bool isDark) {
+  final bodyColor = isDark ? AppColors.slate200 : AppColors.slate700;
+  return MarkdownStyleSheet(
+    p: AppTextStyles.body.copyWith(color: bodyColor),
+    pPadding: const EdgeInsets.only(bottom: AppSpacing.sm),
+    strong: AppTextStyles.bodyStrong.copyWith(color: bodyColor),
+    em: AppTextStyles.body.copyWith(color: bodyColor, fontStyle: FontStyle.italic),
+    listBullet: AppTextStyles.body.copyWith(color: bodyColor),
+  );
+}
+
 class _DrugSection {
   const _DrugSection(this.title, this.icon, this.bg, this.iconColor, this.value);
 
@@ -34,11 +49,26 @@ class _DrugSection {
 
 class _DrugDetailScreenState extends ConsumerState<DrugDetailScreen> {
   late Future<DrugProfile> _drugFuture;
+  bool _isEnhancing = false;
 
   @override
   void initState() {
     super.initState();
     _drugFuture = ref.read(formularyApiProvider).getDrug(widget.drugId);
+  }
+
+  Future<void> _enhanceProfile() async {
+    setState(() => _isEnhancing = true);
+    try {
+      final updated = await ref.read(formularyApiProvider).enhanceProfile(widget.drugId);
+      if (!mounted) return;
+      setState(() => _drugFuture = Future.value(updated));
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _isEnhancing = false);
+    }
   }
 
   // 3x4 grid replacing the old vertical accordion list (client feedback,
@@ -158,18 +188,35 @@ class _DrugDetailScreenState extends ConsumerState<DrugDetailScreen> {
               ),
             ),
             Expanded(
-              child: SingleChildScrollView(
-                controller: scrollController,
-                padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
-                child: Text(
-                  section.value.isEmpty ? 'No information available.' : section.value,
-                  style: AppTextStyles.body.copyWith(
-                    color: section.value.isEmpty
-                        ? AppColors.slate400
-                        : (isDark ? AppColors.slate200 : AppColors.slate700),
-                  ),
-                ),
-              ),
+              child: section.value.isEmpty
+                  ? SingleChildScrollView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+                      child: Text(
+                        'No information available.',
+                        style: AppTextStyles.body.copyWith(color: AppColors.slate400),
+                      ),
+                    )
+                  // AI-generated content now comes back as markdown (bold
+                  // **Heading:** lines plus blank-line-separated paragraphs,
+                  // see formulary.py's _GENERATE_SYSTEM_PROMPT) instead of one
+                  // dense unbroken block — owner feedback, 2026-09-13: "DOSE
+                  // displays information without using paragraphs". Rendered
+                  // via MarkdownBody so those headings/paragraphs actually
+                  // show, not as literal '**' characters.
+                  //
+                  // Justify (equal left/right edges) was tried per owner
+                  // request, 2026-09-11, but Flutter stretches inter-word
+                  // spacing to force each line flush, and on a normal
+                  // paragraph width that reads as uneven, hard-to-read gaps
+                  // more often than it reads as "clean" — reverted in favor
+                  // of readability, per the very next round of feedback.
+                  : Markdown(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+                      data: section.value,
+                      styleSheet: _sectionMarkdownStyleSheet(isDark),
+                    ),
             ),
           ],
         ),
@@ -252,6 +299,8 @@ class _DrugDetailScreenState extends ConsumerState<DrugDetailScreen> {
                         ],
                       ),
                     ],
+                    const SizedBox(height: AppSpacing.sm),
+                    _EnhanceProfileButton(isLoading: _isEnhancing, onTap: _enhanceProfile),
                   ],
                 ),
               ),
@@ -276,7 +325,10 @@ class _DrugDetailScreenState extends ConsumerState<DrugDetailScreen> {
                 child: Text(
                   'AI can make mistakes. Always double check doses and brand names.',
                   textAlign: TextAlign.center,
-                  style: AppTextStyles.micro.copyWith(color: AppColors.slate400),
+                  style: AppTextStyles.micro.copyWith(
+                    color: AppColors.slate400,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
               ),
             ],
@@ -322,15 +374,68 @@ class _DrugSectionCell extends StatelessWidget {
               child: Icon(section.icon, color: section.iconColor, size: 18),
             ),
             const SizedBox(height: 6),
-            Text(
-              section.title,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.micro.copyWith(
-                fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white : AppColors.cardTitleText,
+            // FittedBox shrinks the whole word to fit one line instead of
+            // wrapping — a plain 2-line wrap could leave a single orphan
+            // character (e.g. "Pharmacokinetic" / "s") on its own line,
+            // which reads as broken (owner feedback, 2026-09-11, same fix
+            // already applied to the Systems icon grid).
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                section.title,
+                textAlign: TextAlign.center,
+                softWrap: false,
+                style: AppTextStyles.micro.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : AppColors.cardTitleText,
+                ),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Owner-supplied reference design, 2026-09-11: a small lavender pill with a
+/// sparkle icon, sitting right below the drug class badge. Re-runs the AI
+/// generation for every content field on this drug (see
+/// backend POST /formulary/drugs/{id}/enhance) — the curated drugs seeded on
+/// first startup only ever had two fields lazily backfilled, so most of
+/// their profile otherwise stays sparse forever.
+class _EnhanceProfileButton extends StatelessWidget {
+  const _EnhanceProfileButton({required this.isLoading, required this.onTap});
+
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: isLoading ? null : onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+        decoration: BoxDecoration(
+          color: AppColors.notesCardBg,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isLoading)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.notesIcon),
+              )
+            else
+              const Icon(Icons.auto_awesome_rounded, size: 16, color: AppColors.notesIcon),
+            const SizedBox(width: AppSpacing.xs),
+            Text(
+              isLoading ? 'Enhancing…' : 'Enhance Profile with AI',
+              style: AppTextStyles.caption.copyWith(color: AppColors.notesIcon, fontWeight: FontWeight.w600),
             ),
           ],
         ),

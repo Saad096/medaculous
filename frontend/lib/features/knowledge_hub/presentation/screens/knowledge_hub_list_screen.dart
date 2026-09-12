@@ -366,6 +366,39 @@ class _KnowledgeHubListScreenState
     );
   }
 
+  Future<void> _renamePdf(PdfDocument pdf) async {
+    final controller = TextEditingController(text: pdf.filename);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename PDF'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'File name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    try {
+      await ref.read(knowledgeHubApiProvider).renamePdf(pdf.id, name);
+      await _load();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      showAppToast(context, e.message, kind: AppToastKind.error);
+    }
+  }
+
   Future<void> _deletePdf(PdfDocument pdf) async {
     await ref.read(knowledgeHubApiProvider).deletePdf(pdf.id);
     await _load();
@@ -662,6 +695,14 @@ class _KnowledgeHubListScreenState
                                     ),
                                     IconButton(
                                       icon: Icon(
+                                        Icons.drive_file_rename_outline_rounded,
+                                        color: context.secondaryText,
+                                      ),
+                                      tooltip: 'Rename',
+                                      onPressed: () => _renamePdf(pdf),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
                                         Icons.drive_file_move_outlined,
                                         color: context.secondaryText,
                                       ),
@@ -671,6 +712,7 @@ class _KnowledgeHubListScreenState
                                   ],
                                 ),
                                 onTap: () => _openPdf(pdf.id, pdf.filename),
+                                onLongPress: () => _renamePdf(pdf),
                               ),
                             ),
                           ),

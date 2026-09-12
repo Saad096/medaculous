@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
 
 import '../config/env.dart';
@@ -28,16 +29,33 @@ const _unauthenticatedAuthPaths = {
 /// the UI — see master spec §5 "Access-token expiry mid-request handled
 /// gracefully."
 class ApiClient {
-  ApiClient({required TokenStorage tokenStorage})
-      : _tokenStorage = tokenStorage,
-        dio = Dio(BaseOptions(
+  ApiClient({required this._tokenStorage})
+    : dio = Dio(
+        BaseOptions(
           baseUrl: Env.apiBaseUrl,
           connectTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
-        )) {
+        ),
+      ) {
     dio.interceptors.add(
       QueuedInterceptorsWrapper(
         onRequest: (options, handler) async {
+          // Fail instantly with no Wifi/data instead of waiting out
+          // connectTimeout (15s) and the transient-retry backoff below on
+          // every single call — that combination made any screen touching
+          // the network look frozen while offline (owner feedback,
+          // 2026-08-21). OfflineBanner already tells the user why.
+          final connectivity = await Connectivity().checkConnectivity();
+          if (connectivity.every((r) => r == ConnectivityResult.none)) {
+            return handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+                error: 'offline',
+                message: "No internet connection",
+              ),
+            );
+          }
           final token = await _tokenStorage.accessToken;
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -45,20 +63,27 @@ class ApiClient {
           handler.next(options);
         },
         onError: (error, handler) async {
-          final isUnauthenticatedEndpoint = _unauthenticatedAuthPaths.contains(error.requestOptions.path);
+          final isUnauthenticatedEndpoint = _unauthenticatedAuthPaths.contains(
+            error.requestOptions.path,
+          );
           final is401 = error.response?.statusCode == 401;
           // Guards against an infinite loop if the retried request 401s again
           // (e.g. the refreshed token is itself rejected) — refresh at most once per request.
-          final alreadyRetriedAfterRefresh = error.requestOptions.extra['refreshRetried'] == true;
+          final alreadyRetriedAfterRefresh =
+              error.requestOptions.extra['refreshRetried'] == true;
 
-          if (is401 && !isUnauthenticatedEndpoint && !alreadyRetriedAfterRefresh) {
+          if (is401 &&
+              !isUnauthenticatedEndpoint &&
+              !alreadyRetriedAfterRefresh) {
             final refreshed = await _tryRefresh();
             if (!refreshed) {
               onSessionExpired?.call();
               return handler.next(error);
             }
             try {
-              final retried = await dio.fetch(error.requestOptions..extra['refreshRetried'] = true);
+              final retried = await dio.fetch(
+                error.requestOptions..extra['refreshRetried'] = true,
+              );
               return handler.resolve(retried);
             } on DioException catch (retryError) {
               return handler.next(retryError);
@@ -68,15 +93,24 @@ class ApiClient {
           // Retry-with-backoff for transient network blips — GET only, since
           // retrying a POST/PUT/DELETE that already reached the server risks
           // duplicating a non-idempotent side effect (e.g. double-registering).
-          final isTransient = error.type == DioExceptionType.connectionTimeout ||
-              error.type == DioExceptionType.receiveTimeout ||
-              error.type == DioExceptionType.connectionError ||
-              (error.response?.statusCode ?? 0) >= 500;
+          // Skips the synthetic "offline" rejection above outright — the
+          // device-level connectivity check that produced it won't have
+          // changed 400ms later, so retrying just delays the same failure.
+          final isKnownOffline = error.error == 'offline';
+          final isTransient =
+              !isKnownOffline &&
+              (error.type == DioExceptionType.connectionTimeout ||
+                  error.type == DioExceptionType.receiveTimeout ||
+                  error.type == DioExceptionType.connectionError ||
+                  (error.response?.statusCode ?? 0) >= 500);
           final isGet = error.requestOptions.method.toUpperCase() == 'GET';
-          final attempt = (error.requestOptions.extra['retryAttempt'] as int?) ?? 0;
+          final attempt =
+              (error.requestOptions.extra['retryAttempt'] as int?) ?? 0;
 
           if (isTransient && isGet && attempt < 2) {
-            await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1) * (attempt + 1)));
+            await Future<void>.delayed(
+              Duration(milliseconds: 400 * (attempt + 1) * (attempt + 1)),
+            );
             try {
               final retried = await dio.fetch(
                 error.requestOptions..extra['retryAttempt'] = attempt + 1,
@@ -109,10 +143,9 @@ class ApiClient {
 
     try {
       // Bare Dio (no interceptors) — avoids recursing into this same 401 handler.
-      final response = await Dio(BaseOptions(baseUrl: Env.apiBaseUrl)).post(
-        '/auth/refresh',
-        data: {'refresh_token': refreshToken},
-      );
+      final response = await Dio(
+        BaseOptions(baseUrl: Env.apiBaseUrl),
+      ).post('/auth/refresh', data: {'refresh_token': refreshToken});
       await _tokenStorage.save(
         accessToken: response.data['access_token'] as String,
         refreshToken: response.data['refresh_token'] as String,

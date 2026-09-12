@@ -54,4 +54,23 @@ class SystemsApi {
       (data) => DiseaseDetail.fromJson(data as Map<String, dynamic>),
     );
   }
+
+  /// The single private note attached to this disease topic, or null if the
+  /// user hasn't written one yet. Deliberately separate from the general
+  /// Notes feature — see backend app.models.disease.DiseaseNote.
+  Future<String?> getDiseaseNote(String diseaseId) {
+    return _call(
+      () => _dio.get('/diseases/$diseaseId/note'),
+      (data) => data == null ? null : (data as Map<String, dynamic>)['content_html'] as String,
+    );
+  }
+
+  /// Creates or replaces this disease's single note (upsert) — there is
+  /// only ever one per disease per user.
+  Future<void> saveDiseaseNote(String diseaseId, String contentHtml) {
+    return _call(
+      () => _dio.put('/diseases/$diseaseId/note', data: {'content_html': contentHtml}),
+      (_) {},
+    );
+  }
 }

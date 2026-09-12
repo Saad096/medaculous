@@ -51,9 +51,17 @@ For a production build, also set `APP_ENV=prod` (`Env.isProd` gates the DEV badg
 Home) and match the backend's own `APP_BASE_URL`/`CORS_ORIGINS` to the same host — see
 `../backend/README.md`.
 
-If you'd rather not repeat long `--dart-define` flags, put them in a JSON file and pass
-`--dart-define-from-file=config/prod.json` instead (keep that file out of version control
-if it ever contains anything sensitive — today it only holds a URL, not secrets).
+If you'd rather not repeat long `--dart-define` flags, use the ready JSON files already in
+`config/` instead — `config/dev.example.json` and `config/prod.example.json` are tracked
+templates (the non-`.example` versions are gitignored, same `.env`/`.env.example` pattern
+used elsewhere in this project, since a base URL is machine-specific even though it isn't
+actually a secret today):
+
+```bash
+cp config/dev.example.json config/dev.json
+cp config/prod.example.json config/prod.json    # already points at this project's VM
+flutter run --dart-define-from-file=config/prod.json
+```
 
 ## Building and installing an APK (sideloading, no store involved)
 

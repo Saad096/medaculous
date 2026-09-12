@@ -96,6 +96,20 @@ class AppColors {
     (examPlannerCardBg, examPlannerIcon),
     (osceCardBg, osceIcon),
   ];
+
+  /// Darkens one of the pastel card colors above for dark mode, preserving
+  /// its own hue instead of every card collapsing to the same flat slate
+  /// tone — owner feedback, 2026-08-22: Home dashboard cards, the Systems
+  /// icon grid and disease-detail section cells all stayed light-pastel on
+  /// a dark background instead of converting like the rest of the UI.
+  static Color cardBg(Color light, bool isDark) {
+    if (!isDark) return light;
+    final hsl = HSLColor.fromColor(light);
+    return hsl
+        .withSaturation((hsl.saturation * 0.65).clamp(0.30, 0.60))
+        .withLightness(0.16)
+        .toColor();
+  }
 }
 
 /// Theme-aware text colors. Secondary text hardcoded to [AppColors.slate500]

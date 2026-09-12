@@ -43,7 +43,12 @@ class NoteOut(BaseModel):
     title: str
     content_html: str
     is_pinned: bool
+    sort_order: int
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class NoteReorder(BaseModel):
+    note_ids: list[uuid.UUID] = Field(min_length=1)

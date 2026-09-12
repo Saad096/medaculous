@@ -163,7 +163,13 @@ class _CategoryGroup extends StatelessWidget {
           ),
           for (final disease in diseases)
             ListTile(
-              title: Text(disease.name, style: AppTextStyles.body),
+              title: Text(
+                disease.name,
+                style: AppTextStyles.body.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : Colors.black,
+                ),
+              ),
               trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.slate400),
               onTap: () => context.push('/diseases/${disease.id}', extra: disease.name),
             ),

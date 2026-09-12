@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/network/api_client.dart';
@@ -67,11 +68,33 @@ class AuthController extends StateNotifier<AuthState> {
       state = const AuthState(status: AuthStatus.unauthenticated);
       return;
     }
+
+    // No Wifi/data: skip the network round trip entirely rather than
+    // stalling the splash screen through connectTimeout + retry backoff
+    // (owner feedback, 2026-08-21 — app must open offline, not hang). A
+    // returning session opens straight in using its last-cached profile;
+    // screens that need live data show their own offline/empty states.
+    final connectivity = await Connectivity().checkConnectivity();
+    final offline = connectivity.every((r) => r == ConnectivityResult.none);
+    if (offline) {
+      final cached = await _repository.cachedUser();
+      state = cached != null
+          ? AuthState(status: AuthStatus.authenticated, user: cached)
+          : const AuthState(status: AuthStatus.unauthenticated);
+      return;
+    }
+
     try {
       final user = await _repository.me();
       state = AuthState(status: AuthStatus.authenticated, user: user);
     } catch (_) {
-      state = const AuthState(status: AuthStatus.unauthenticated);
+      // Connectivity looked fine but the call still failed (e.g. dropped
+      // mid-check) — still let a previously-seen session in offline-style
+      // rather than bouncing straight to the login screen.
+      final cached = await _repository.cachedUser();
+      state = cached != null
+          ? AuthState(status: AuthStatus.authenticated, user: cached)
+          : const AuthState(status: AuthStatus.unauthenticated);
     }
   }
 

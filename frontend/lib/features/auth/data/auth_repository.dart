@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../../core/storage/token_storage.dart';
@@ -9,12 +10,10 @@ import 'oauth_service.dart';
 /// pair persists it before returning, so callers never handle tokens directly.
 class AuthRepository {
   AuthRepository({
-    required AuthApi api,
+    required this._api,
     required TokenStorage tokenStorage,
-    required OAuthService oauthService,
-  }) : _api = api,
-       _tokenStorage = tokenStorage,
-       _oauthService = oauthService;
+    required this._oauthService,
+  }) : _tokenStorage = tokenStorage;
 
   final AuthApi _api;
   final TokenStorage _tokenStorage;
@@ -110,10 +109,25 @@ class AuthRepository {
 
   Future<AppUser> me() async {
     final data = await _api.me();
+    await _tokenStorage.saveCachedUser(jsonEncode(data));
     return AppUser.fromJson(data);
   }
 
   Future<bool> hasSession() async => (await _tokenStorage.accessToken) != null;
+
+  /// Last-known profile from a prior successful [me] call, or null if this
+  /// device has never fetched one (e.g. logged in elsewhere and the token was
+  /// restored without ever going online here). Used to let the app open
+  /// while offline instead of blocking on a network call that will only fail.
+  Future<AppUser?> cachedUser() async {
+    final json = await _tokenStorage.cachedUser;
+    if (json == null) return null;
+    try {
+      return AppUser.fromJson(jsonDecode(json) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<AppUser> uploadAvatar(Uint8List bytes, String filename) async {
     final data = await _api.uploadAvatar(bytes, filename);

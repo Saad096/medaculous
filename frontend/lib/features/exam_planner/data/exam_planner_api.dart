@@ -92,9 +92,9 @@ class ExamPlannerApi {
   Future<ExamSession> updateSession(String id, {String? status, int? actualMinutesSpent, int? confidenceRating}) {
     return _call(
       () => _dio.patch('/exam-planner/sessions/$id', data: {
-        if (status != null) 'status': status,
-        if (actualMinutesSpent != null) 'actual_minutes_spent': actualMinutesSpent,
-        if (confidenceRating != null) 'confidence_rating': confidenceRating,
+        'status': ?status,
+        'actual_minutes_spent': ?actualMinutesSpent,
+        'confidence_rating': ?confidenceRating,
       }),
       (data) => ExamSession.fromJson(data as Map<String, dynamic>),
     );
@@ -152,10 +152,10 @@ class ExamPlannerApi {
   }) {
     return _call(
       () => _dio.patch('/exam-planner/topics/$topicId/meta', data: {
-        if (notes != null) 'notes': notes,
+        'notes': ?notes,
         if (checklists != null) 'checklists': checklists.map((c) => c.toJson()).toList(),
-        if (isBookmarked != null) 'is_bookmarked': isBookmarked,
-        if (difficulty != null) 'difficulty': difficulty,
+        'is_bookmarked': ?isBookmarked,
+        'difficulty': ?difficulty,
       }),
       (data) => Topic.fromJson(data as Map<String, dynamic>),
     );

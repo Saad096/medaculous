@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class LocalPrefs {
   static const _onboardingKey = 'has_seen_onboarding';
   static const _darkModeKey = 'dark_mode_enabled';
+  static const _notesSortModeKey = 'notes_sort_mode';
 
   Future<bool> hasSeenOnboarding() async {
     final prefs = await SharedPreferences.getInstance();
@@ -25,5 +26,17 @@ class LocalPrefs {
   Future<void> setDarkModeEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_darkModeKey, enabled);
+  }
+
+  /// Raw string value is one of NoteSortMode's names ('date', 'name',
+  /// 'custom') — null means no preference saved yet, caller defaults to date.
+  Future<String?> getNotesSortMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_notesSortModeKey);
+  }
+
+  Future<void> setNotesSortMode(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_notesSortModeKey, mode);
   }
 }

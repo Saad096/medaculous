@@ -103,6 +103,34 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
     );
   }
 
+  /// pdfx's *default* page builder wraps every page in its own independently
+  /// pinch-zoomable PhotoView — great on its own, but the highlight/drawing
+  /// overlays are positioned from _pageRect(), which only ever knows the
+  /// page's fit-to-viewport rect and has no way to see that per-page zoom.
+  /// Once a user pinched in, whatever they highlighted landed in the wrong
+  /// place relative to the now-zoomed page (owner feedback, 2026-09-12).
+  /// Fix: lock this PhotoView to a single fixed scale (`disableGestures` +
+  /// min == max == initial) so it can never zoom on its own, and let a
+  /// single InteractiveViewer around the *whole* Stack (page + overlays,
+  /// see the build method below) own zooming instead — everything inside it
+  /// scales as one unit, so overlay coordinates stay correct at any zoom.
+  PhotoViewGalleryPageOptions _pageBuilder(
+    BuildContext context,
+    Future<PdfPageImage> pageImage,
+    int index,
+    pdfx.PdfDocument document,
+  ) {
+    const fixedScale = PhotoViewComputedScale.contained;
+    return PhotoViewGalleryPageOptions(
+      imageProvider: PdfPageImageProvider(pageImage, index, document.id),
+      minScale: fixedScale,
+      maxScale: fixedScale,
+      initialScale: fixedScale,
+      disableGestures: true,
+      heroAttributes: PhotoViewHeroAttributes(tag: '${document.id}-$index'),
+    );
+  }
+
   Future<void> _load() async {
     try {
       final api = ref.read(knowledgeHubApiProvider);
@@ -252,9 +280,7 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
         child: _outline.isEmpty
             ? const Padding(
                 padding: EdgeInsets.all(AppSpacing.xl),
-                child: Text(
-                  'This document has no built-in table of contents.',
-                ),
+                child: Text('This document has no built-in table of contents.'),
               )
             : ListView.builder(
                 shrinkWrap: true,
@@ -540,13 +566,11 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                             ? AppColors.warning
                             : parseHexColor(annotation.color),
                       ),
-                      title: Text(
-                        switch (annotation.type) {
-                          'note' => annotation.note,
-                          'ink' => 'Pen drawing',
-                          _ => 'Highlight',
-                        },
-                      ),
+                      title: Text(switch (annotation.type) {
+                        'note' => annotation.note,
+                        'ink' => 'Pen drawing',
+                        _ => 'Highlight',
+                      }),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline_rounded),
                         onPressed: () async {
@@ -698,10 +722,9 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                         tooltip: 'Previous page',
                         onPressed: _currentPage > 1
                             ? () => _controller?.previousPage(
-                                  duration:
-                                      const Duration(milliseconds: 200),
-                                  curve: Curves.easeOut,
-                                )
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut,
+                              )
                             : null,
                       ),
                       Expanded(
@@ -714,8 +737,9 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                             color: _tool != _ViewerTool.pan
                                 ? AppColors.primary
                                 : context.secondaryText,
-                            fontWeight:
-                                _tool != _ViewerTool.pan ? FontWeight.w600 : null,
+                            fontWeight: _tool != _ViewerTool.pan
+                                ? FontWeight.w600
+                                : null,
                           ),
                         ),
                       ),
@@ -725,10 +749,9 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                         onPressed:
                             _pageCount != null && _currentPage < _pageCount!
                             ? () => _controller?.nextPage(
-                                  duration:
-                                      const Duration(milliseconds: 200),
-                                  curve: Curves.easeOut,
-                                )
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut,
+                              )
                             : null,
                       ),
                     ],
@@ -742,160 +765,181 @@ class _PdfViewerScreenState extends ConsumerState<PdfViewerScreen> {
                         constraints.maxHeight,
                       );
                       final pageRect = _pageRect(viewportSize);
-                      return Stack(
-                        children: [
-                          PdfView(
-                            controller: _controller!,
-                            renderer: _renderPage,
-                            onDocumentLoaded: (doc) =>
-                                setState(() => _pageCount = doc.pagesCount),
-                            onPageChanged: (page) =>
-                                setState(() => _currentPage = page),
-                          ),
-                          // Saved highlights for the current page, mapped from
-                          // page-normalized coordinates back onto the displayed
-                          // page bounds, in their saved colors.
-                          for (final annotation in _annotations.where(
-                            (a) =>
-                                a.pageNumber == _currentPage &&
-                                a.type == 'highlight',
-                          ))
-                            for (final rect in annotation.rects)
-                              Positioned(
-                                left: pageRect.left + rect.x * pageRect.width,
-                                top: pageRect.top + rect.y * pageRect.height,
-                                width: rect.width * pageRect.width,
-                                height: rect.height * pageRect.height,
-                                child: IgnorePointer(
-                                  child: Container(
-                                    color: parseHexColor(annotation.color)
-                                        .withValues(alpha: 0.35),
-                                  ),
-                                ),
+                      return InteractiveViewer(
+                        // The single source of zoom/pan for this whole page
+                        // — see _pageBuilder's doc comment for why this
+                        // replaces PhotoView's own per-page zoom instead of
+                        // living alongside it. Pan only claims single-finger
+                        // drags in the plain "pan" tool — otherwise it would
+                        // compete with (and normally win over) the
+                        // highlight/draw/erase tools' own onPan* handlers
+                        // further down this Stack. Pinch-to-zoom stays on
+                        // regardless of tool, since it's a two-finger
+                        // gesture none of those tools use.
+                        panEnabled: _tool == _ViewerTool.pan,
+                        scaleEnabled: true,
+                        minScale: 1,
+                        maxScale: 4,
+                        child: Stack(
+                          children: [
+                            PdfView(
+                              controller: _controller!,
+                              renderer: _renderPage,
+                              builders: PdfViewBuilders<DefaultBuilderOptions>(
+                                options: const DefaultBuilderOptions(),
+                                pageBuilder: _pageBuilder,
                               ),
-                          // Saved pen strokes + the stroke being drawn.
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              child: CustomPaint(
-                                painter: _InkOverlayPainter(
-                                  annotations: _annotations,
-                                  currentPage: _currentPage,
-                                  pageRect: pageRect,
-                                  liveStroke: _inkPoints,
-                                  liveColor: _color,
-                                ),
-                              ),
+                              onDocumentLoaded: (doc) =>
+                                  setState(() => _pageCount = doc.pagesCount),
+                              onPageChanged: (page) =>
+                                  setState(() => _currentPage = page),
                             ),
-                          ),
-                          // Sticky-note badge: page notes have no position, so
-                          // surface them with a visible marker instead of
-                          // hiding them behind a menu.
-                          if (_currentPageNoteCount > 0)
-                            Positioned(
-                              top: pageRect.top + 8,
-                              right:
-                                  viewportSize.width - pageRect.right + 8,
-                              child: Material(
-                                color: AppColors.warning,
-                                borderRadius: BorderRadius.circular(8),
-                                elevation: 2,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(8),
-                                  onTap: _showPageAnnotations,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 5,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                          Icons.sticky_note_2_rounded,
-                                          size: 15,
-                                          color: Colors.white,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          '$_currentPageNoteCount',
-                                          style: AppTextStyles.micro.copyWith(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
+                            // Saved highlights for the current page, mapped from
+                            // page-normalized coordinates back onto the displayed
+                            // page bounds, in their saved colors.
+                            for (final annotation in _annotations.where(
+                              (a) =>
+                                  a.pageNumber == _currentPage &&
+                                  a.type == 'highlight',
+                            ))
+                              for (final rect in annotation.rects)
+                                Positioned(
+                                  left: pageRect.left + rect.x * pageRect.width,
+                                  top: pageRect.top + rect.y * pageRect.height,
+                                  width: rect.width * pageRect.width,
+                                  height: rect.height * pageRect.height,
+                                  child: IgnorePointer(
+                                    child: Container(
+                                      color: parseHexColor(
+                                        annotation.color,
+                                      ).withValues(alpha: 0.35),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
-                          if (_tool == _ViewerTool.highlight)
+                            // Saved pen strokes + the stroke being drawn.
                             Positioned.fill(
-                              child: GestureDetector(
-                                onPanStart: (details) => setState(() {
-                                  _dragStart = details.localPosition;
-                                  _dragCurrent = details.localPosition;
-                                }),
-                                onPanUpdate: (details) => setState(
-                                  () => _dragCurrent = details.localPosition,
-                                ),
-                                onPanEnd: (_) {
-                                  if (_dragStart != null &&
-                                      _dragCurrent != null) {
-                                    final rect = Rect.fromPoints(
-                                      _dragStart!,
-                                      _dragCurrent!,
-                                    );
-                                    if (rect.width > 8 && rect.height > 8) {
-                                      _saveHighlight(rect, viewportSize);
-                                    }
-                                  }
-                                  setState(() {
-                                    _dragStart = null;
-                                    _dragCurrent = null;
-                                  });
-                                },
+                              child: IgnorePointer(
                                 child: CustomPaint(
-                                  painter:
-                                      _dragStart != null && _dragCurrent != null
-                                      ? _DragRectPainter(
-                                          Rect.fromPoints(
-                                            _dragStart!,
-                                            _dragCurrent!,
+                                  painter: _InkOverlayPainter(
+                                    annotations: _annotations,
+                                    currentPage: _currentPage,
+                                    pageRect: pageRect,
+                                    liveStroke: _inkPoints,
+                                    liveColor: _color,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            // Sticky-note badge: page notes have no position, so
+                            // surface them with a visible marker instead of
+                            // hiding them behind a menu.
+                            if (_currentPageNoteCount > 0)
+                              Positioned(
+                                top: pageRect.top + 8,
+                                right: viewportSize.width - pageRect.right + 8,
+                                child: Material(
+                                  color: AppColors.warning,
+                                  borderRadius: BorderRadius.circular(8),
+                                  elevation: 2,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: _showPageAnnotations,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 5,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.sticky_note_2_rounded,
+                                            size: 15,
+                                            color: Colors.white,
                                           ),
-                                          _color,
-                                        )
-                                      : null,
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '$_currentPageNoteCount',
+                                            style: AppTextStyles.micro.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (_tool == _ViewerTool.highlight)
+                              Positioned.fill(
+                                child: GestureDetector(
+                                  onPanStart: (details) => setState(() {
+                                    _dragStart = details.localPosition;
+                                    _dragCurrent = details.localPosition;
+                                  }),
+                                  onPanUpdate: (details) => setState(
+                                    () => _dragCurrent = details.localPosition,
+                                  ),
+                                  onPanEnd: (_) {
+                                    if (_dragStart != null &&
+                                        _dragCurrent != null) {
+                                      final rect = Rect.fromPoints(
+                                        _dragStart!,
+                                        _dragCurrent!,
+                                      );
+                                      if (rect.width > 8 && rect.height > 8) {
+                                        _saveHighlight(rect, viewportSize);
+                                      }
+                                    }
+                                    setState(() {
+                                      _dragStart = null;
+                                      _dragCurrent = null;
+                                    });
+                                  },
+                                  child: CustomPaint(
+                                    painter:
+                                        _dragStart != null &&
+                                            _dragCurrent != null
+                                        ? _DragRectPainter(
+                                            Rect.fromPoints(
+                                              _dragStart!,
+                                              _dragCurrent!,
+                                            ),
+                                            _color,
+                                          )
+                                        : null,
+                                    child: Container(color: Colors.transparent),
+                                  ),
+                                ),
+                              ),
+                            if (_tool == _ViewerTool.draw)
+                              Positioned.fill(
+                                child: GestureDetector(
+                                  onPanStart: (details) => setState(
+                                    () => _inkPoints
+                                      ..clear()
+                                      ..add(details.localPosition),
+                                  ),
+                                  onPanUpdate: (details) => setState(
+                                    () => _inkPoints.add(details.localPosition),
+                                  ),
+                                  onPanEnd: (_) => _saveInk(viewportSize),
                                   child: Container(color: Colors.transparent),
                                 ),
                               ),
-                            ),
-                          if (_tool == _ViewerTool.draw)
-                            Positioned.fill(
-                              child: GestureDetector(
-                                onPanStart: (details) => setState(
-                                  () => _inkPoints
-                                    ..clear()
-                                    ..add(details.localPosition),
+                            if (_tool == _ViewerTool.erase)
+                              Positioned.fill(
+                                child: GestureDetector(
+                                  onTapUp: (details) => _eraseAt(
+                                    details.localPosition,
+                                    viewportSize,
+                                  ),
+                                  child: Container(color: Colors.transparent),
                                 ),
-                                onPanUpdate: (details) => setState(
-                                  () => _inkPoints.add(details.localPosition),
-                                ),
-                                onPanEnd: (_) => _saveInk(viewportSize),
-                                child: Container(color: Colors.transparent),
                               ),
-                            ),
-                          if (_tool == _ViewerTool.erase)
-                            Positioned.fill(
-                              child: GestureDetector(
-                                onTapUp: (details) => _eraseAt(
-                                  details.localPosition,
-                                  viewportSize,
-                                ),
-                                child: Container(color: Colors.transparent),
-                              ),
-                            ),
-                        ],
+                          ],
+                        ),
                       );
                     },
                   ),
@@ -1111,10 +1155,7 @@ class _DragRectPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      rect,
-      Paint()..color = color.withValues(alpha: 0.35),
-    );
+    canvas.drawRect(rect, Paint()..color = color.withValues(alpha: 0.35));
     canvas.drawRect(
       rect,
       Paint()
@@ -1183,8 +1224,7 @@ class _InkOverlayPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round
         ..style = PaintingStyle.stroke;
-      final path = Path()
-        ..moveTo(liveStroke.first.dx, liveStroke.first.dy);
+      final path = Path()..moveTo(liveStroke.first.dx, liveStroke.first.dy);
       for (final p in liveStroke.skip(1)) {
         path.lineTo(p.dx, p.dy);
       }

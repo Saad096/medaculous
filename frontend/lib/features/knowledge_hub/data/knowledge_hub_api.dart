@@ -36,7 +36,7 @@ class KnowledgeHubApi {
     return _call(
       () => _dio.post(
         '/knowledge-hub/folders',
-        data: {'name': name, if (parentId != null) 'parent_id': parentId},
+        data: {'name': name, 'parent_id': ?parentId},
       ),
       (data) => PdfFolder.fromJson(data as Map<String, dynamic>),
     );
@@ -58,7 +58,7 @@ class KnowledgeHubApi {
       () => _dio.get(
         '/knowledge-hub/pdfs',
         queryParameters: {
-          if (folderId != null) 'folder_id': folderId,
+          'folder_id': ?folderId,
           if (q != null && q.isNotEmpty) 'q': q,
         },
       ),
@@ -94,7 +94,7 @@ class KnowledgeHubApi {
             contentType: DioMediaType('application', 'pdf'),
           ),
         }),
-        queryParameters: {if (folderId != null) 'folder_id': folderId},
+        queryParameters: {'folder_id': ?folderId},
         options: Options(
           receiveTimeout: const Duration(seconds: 60),
           sendTimeout: const Duration(seconds: 60),

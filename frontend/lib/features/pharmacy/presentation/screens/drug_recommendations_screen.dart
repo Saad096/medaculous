@@ -85,6 +85,14 @@ class _DrugRecommendationsScreenState extends ConsumerState<DrugRecommendationsS
       // with current: null gives that without adding a 6th tab (2026-08-17).
       child: NavShell(
         current: null,
+        // This whole screen is already the AI Clinical Pharmacist feature —
+        // a second, generic "Ask AI" bubble floating on top is redundant,
+        // and on the Pharmacist tab it visually collided with the pinned
+        // "Review Pharmacotherapy Suggestion" button/progress bar below it,
+        // since NavShell's FAB has no way to know that button occupies body
+        // space the Scaffold doesn't otherwise account for (owner feedback,
+        // 2026-09-11 — "messy" while the progress bar was filling).
+        showAiFab: false,
         appBar: AppBar(
           title: const Text('Drug Recommendations'),
           bottom: const TabBar(
@@ -124,9 +132,34 @@ class _PharmacistTab extends ConsumerStatefulWidget {
   ConsumerState<_PharmacistTab> createState() => _PharmacistTabState();
 }
 
-class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKeepAliveClientMixin {
+class _PharmacistTabState extends ConsumerState<_PharmacistTab>
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   @override
   bool get wantKeepAlive => true;
+
+  // The AI call has no server-reported progress to show, and its real
+  // duration is unbounded (a broad query can take well over a minute, and
+  // there's no hard ceiling — owner feedback, 2026-09-11: a fixed 75s
+  // estimate hit 100% and sat there while the backend was still working).
+  // Fix: the *duration* below only paces how fast the bar climbs — it is
+  // never what guarantees correctness. Correctness comes from _capped
+  // below, which hard-blocks the displayed value at 92% for as long as
+  // _isLoading is true, no matter how long that turns out to be. Only the
+  // explicit animateTo(1) call in _review()'s success path, which flips
+  // _snapToComplete first, is allowed past that cap.
+  static const _estimatedDuration = Duration(minutes: 10);
+  static const _loadingCap = 0.92;
+  bool _snapToComplete = false;
+  late final AnimationController _progressController = AnimationController(
+    vsync: this,
+    duration: _estimatedDuration,
+  );
+  late final Animation<double> _rawProgress = CurvedAnimation(
+    parent: _progressController,
+    curve: Curves.easeOutQuart,
+  );
+  double get _cappedProgress =>
+      _snapToComplete ? _rawProgress.value : _rawProgress.value.clamp(0.0, _loadingCap);
 
   final _symptomController = TextEditingController();
   final _symptoms = <String>[];
@@ -146,6 +179,50 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
   String? _error;
   RecommendationResult? _result;
 
+  // Owner feedback, 2026-09-11: once the response lands, jump straight to
+  // where it *starts* (not the very bottom of a possibly long form + result
+  // list, and not left wherever the user happened to be scrolled while
+  // waiting) — then offer a floating "scroll to bottom" button for anyone
+  // who wants to skip ahead instead of scrolling the whole list by hand.
+  final _scrollController = ScrollController();
+  final _resultsStartKey = GlobalKey();
+  bool _showScrollToBottom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_updateScrollToBottomVisibility);
+  }
+
+  void _updateScrollToBottomVisibility() {
+    if (!_scrollController.hasClients || _result == null) return;
+    final position = _scrollController.position;
+    final nearBottom = position.pixels >= position.maxScrollExtent - 24;
+    if (nearBottom == _showScrollToBottom) {
+      setState(() => _showScrollToBottom = !nearBottom);
+    }
+  }
+
+  Future<void> _scrollToResultsStart() async {
+    final resultsContext = _resultsStartKey.currentContext;
+    if (resultsContext == null) return;
+    await Scrollable.ensureVisible(
+      resultsContext,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOut,
+      alignment: 0,
+    );
+  }
+
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      _scrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   void dispose() {
     _symptomController.dispose();
@@ -153,6 +230,8 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
     _weightController.dispose();
     _allergiesController.dispose();
     _chronicController.dispose();
+    _progressController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -175,7 +254,10 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
       _isLoading = true;
       _error = null;
       _result = null;
+      _snapToComplete = false;
+      _showScrollToBottom = false;
     });
+    _progressController.forward(from: 0);
     try {
       final result = await ref.read(pharmacyApiProvider).getRecommendations(
             symptoms: _symptoms.join(', '),
@@ -191,7 +273,16 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
             country: _country,
           );
       if (!mounted) return;
-      setState(() => _result = result);
+      // Only past this point is the bar allowed to actually show 100% —
+      // it's known the real answer is in hand, not just that time passed.
+      _snapToComplete = true;
+      await _progressController.animateTo(1, duration: const Duration(milliseconds: 250));
+      if (!mounted) return;
+      setState(() {
+        _result = result;
+        _showScrollToBottom = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToResultsStart());
     } on ApiException catch (e) {
       if (!mounted) return;
       if (e.statusCode == 429) {
@@ -200,6 +291,7 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
         setState(() => _error = e.message);
       }
     } finally {
+      _progressController.stop();
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -216,7 +308,26 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
     // whether the nav bar is showing (owner feedback, 2026-08-17).
     return Column(
       children: [
-        Expanded(child: _buildForm(context, isDark)),
+        Expanded(
+          child: Stack(
+            children: [
+              _buildForm(context, isDark),
+              if (_showScrollToBottom)
+                Positioned(
+                  bottom: AppSpacing.md,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: FloatingActionButton.small(
+                      heroTag: 'pharmacistScrollDown',
+                      onPressed: _scrollToBottom,
+                      child: const Icon(Icons.keyboard_arrow_down_rounded),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
         _buildReviewFooter(),
       ],
     );
@@ -224,6 +335,7 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
 
   Widget _buildForm(BuildContext context, bool isDark) {
     return ListView(
+      controller: _scrollController,
       padding: const EdgeInsets.all(AppSpacing.md),
       children: [
         Container(
@@ -398,7 +510,7 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
           Text(_error!, style: AppTextStyles.body.copyWith(color: AppColors.danger)),
         ],
         if (_result != null) ...[
-          const SizedBox(height: AppSpacing.lg),
+          SizedBox(key: _resultsStartKey, height: AppSpacing.lg),
           if (_result!.urgentAssessmentRequired)
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
@@ -468,14 +580,70 @@ class _PharmacistTabState extends ConsumerState<_PharmacistTab> with AutomaticKe
         top: false,
         child: SizedBox(
           width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _isLoading ? null : _review,
-            icon: _isLoading
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.auto_awesome_rounded),
-            label: Text(_isLoading ? 'Pharmacist is reviewing…' : 'Review Pharmacotherapy Suggestion'),
-          ),
+          height: 48,
+          child: _isLoading
+              ? _AnalyzingProgressBar(
+                  animation: _progressController,
+                  progressValue: () => _cappedProgress,
+                )
+              : FilledButton.icon(
+                  onPressed: _review,
+                  icon: const Icon(Icons.auto_awesome_rounded),
+                  label: const Text('Review Pharmacotherapy Suggestion'),
+                ),
         ),
+      ),
+    );
+  }
+}
+
+/// Replaces the submit button while the AI call is in flight — owner
+/// feedback, 2026-09-11: a broad query can take over a minute, and a plain
+/// spinner gave no sense of progress. There's no real server-reported
+/// progress to show (a single blocking call, not a stream), so this fills
+/// against a time estimate instead, hard-capped below 100% until the real
+/// response actually arrives (see _PharmacistTabState._cappedProgress —
+/// a first version let the bar reach 100% purely from time passing while
+/// the backend was still working).
+class _AnalyzingProgressBar extends StatelessWidget {
+  const _AnalyzingProgressBar({required this.animation, required this.progressValue});
+
+  /// Ticks the rebuild — the actual displayed fraction always comes from
+  /// [progressValue], since it depends on more than just the animation's
+  /// raw value (see _PharmacistTabState._cappedProgress).
+  final Listenable animation;
+  final double Function() progressValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadii.pill),
+      child: Stack(
+        alignment: Alignment.centerLeft,
+        children: [
+          // A dark indigo base (not the light/dark surface color) so the
+          // white label stays readable throughout — the gradient fill is
+          // the same hue family, just brighter, rather than contrasting
+          // against a light, hard-to-read track early in the animation.
+          const ColoredBox(color: Color(0xFF1E1B4B)),
+          AnimatedBuilder(
+            animation: animation,
+            builder: (context, child) => FractionallySizedBox(
+              widthFactor: progressValue().clamp(0.0, 1.0),
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(colors: [AppColors.aiIndigo, AppColors.primary]),
+                ),
+              ),
+            ),
+          ),
+          const Align(
+            child: Text(
+              'Pharmacist is reviewing…',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+          ),
+        ],
       ),
     );
   }

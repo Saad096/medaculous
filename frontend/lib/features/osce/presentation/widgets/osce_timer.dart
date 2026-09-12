@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -34,10 +35,12 @@ class _OsceTimerState extends State<OsceTimer> {
   bool _isRunning = false;
   bool _isTimeUp = false;
   Timer? _timer;
+  final AudioPlayer _player = AudioPlayer();
 
   @override
   void dispose() {
     _timer?.cancel();
+    _player.dispose();
     super.dispose();
   }
 
@@ -50,7 +53,14 @@ class _OsceTimerState extends State<OsceTimer> {
       if (remaining <= Duration.zero) {
         _timeLeft = 0;
         _isRunning = false;
-        _isTimeUp = true;
+        if (!_isTimeUp) {
+          _isTimeUp = true;
+          // SystemSound.play(SystemSoundType.alert) is silent on most
+          // Android devices (no built-in "alert" tone there), so a bundled
+          // beep asset is played directly instead (owner feedback,
+          // 2026-09-12: "beep sound is not enabled").
+          _player.play(AssetSource('sounds/timer_beep.wav'));
+        }
         _timer?.cancel();
       } else {
         _timeLeft = remaining.inSeconds;

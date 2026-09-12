@@ -7,6 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/app_toast.dart';
+import '../../../notes/domain/markdown_to_quill.dart';
 import '../../../notes/presentation/providers/notes_providers.dart';
 import '../../../settings/presentation/widgets/usage_limit_dialog.dart';
 import '../../domain/conversation.dart';
@@ -269,7 +270,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .read(notesApiProvider)
         .createNote(
           title: 'Medaculous AI — ${_mode.label}',
-          contentHtml: message.content,
+          contentHtml: markdownToNoteContent(message.content),
         );
     if (!mounted) return;
     showAppToast(context, 'Saved to Notes');
@@ -307,8 +308,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .read(notesApiProvider)
         .createNote(
           title: 'Medaculous AI — ${_mode.label}',
-          contentHtml:
-              '**My note:**\n$text\n\n---\n**AI response:**\n${message.content}',
+          contentHtml: markdownToNoteContent(
+            '**My note:**\n$text\n\n---\n**AI response:**\n${message.content}',
+          ),
         );
     if (!mounted) return;
     showAppToast(context, 'Note saved');

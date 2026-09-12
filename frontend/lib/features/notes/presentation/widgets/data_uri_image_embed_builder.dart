@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/sketch_screen.dart';
 
@@ -32,6 +33,16 @@ class DataUriImageEmbedBuilder extends EmbedBuilder {
   // decodes once.
   static final Map<String, Uint8List> _decodedCache = {};
 
+  // Which image (keyed by its own data URI, unique per embed in practice) is
+  // currently showing its resize/delete handles — owner feedback,
+  // 2026-09-11: tapping an image should select it for resize/delete without
+  // the keyboard popping up, and tapping anywhere else in the note should
+  // deselect it and hand focus back to typing. A single shared notifier (at
+  // most one image is ever "selected" at a time) lets note_editor_screen.dart
+  // clear it the moment the editor's own text focus node gains focus, which
+  // is exactly the "tapped elsewhere" signal — see its FocusNode listener.
+  static final ValueNotifier<String?> selectedKey = ValueNotifier<String?>(null);
+
   @override
   String get key => BlockEmbed.imageType;
 
@@ -44,26 +55,20 @@ class DataUriImageEmbedBuilder extends EmbedBuilder {
     final image = _resolveImage(source);
     final widthPercent = _widthPercent(embedContext);
 
-    // Plain, static widget tree — no LayoutBuilder, no interactive chrome
-    // inside the document flow (that extra surface area inside the embed
-    // was itself part of what made the old version unstable). Resizing now
-    // lives in the full-screen viewer instead — see _openFullScreen.
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: GestureDetector(
-        // Feature PDF, Notes fix #1: attached images must support zooming
-        // with hand gestures — tap opens a full-screen pinch-to-zoom viewer.
-        onTap: () => _openFullScreen(context, embedContext, source),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: FractionallySizedBox(
-            widthFactor: widthPercent / 100,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              child: image,
-            ),
-          ),
-        ),
+      // Taller than a plain 8px gap on both sides — a tight gap let the text
+      // caret on the line right after the image render as if it were
+      // overlapping the image's own bottom edge instead of clearly below it
+      // (owner feedback, 2026-09-11: cursor "half under" the image).
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: _ResizableImageEmbed(
+        embedKey: source,
+        image: image,
+        initialWidthPercent: widthPercent,
+        canEdit: !embedContext.readOnly,
+        onResize: (pct) => _setWidth(embedContext, pct),
+        onDelete: () => _deleteEmbed(embedContext),
+        onLongPress: () => _openFullScreen(context, embedContext, source),
       ),
     );
   }
@@ -90,6 +95,12 @@ class DataUriImageEmbedBuilder extends EmbedBuilder {
     );
   }
 
+  void _deleteEmbed(EmbedContext embedContext) {
+    final offset = embedContext.node.documentOffset;
+    selectedKey.value = null;
+    embedContext.controller.replaceText(offset, 1, '', TextSelection.collapsed(offset: offset));
+  }
+
   void _openFullScreen(
     BuildContext context,
     EmbedContext embedContext,
@@ -101,10 +112,7 @@ class DataUriImageEmbedBuilder extends EmbedBuilder {
         fullscreenDialog: true,
         builder: (context) => _FullScreenImageViewer(
           image: _resolveImage(source),
-          bytes: bytes,
           canEdit: !embedContext.readOnly,
-          initialWidthPercent: _widthPercent(embedContext),
-          onResize: (pct) => _setWidth(embedContext, pct),
           onAnnotate: bytes == null
               ? null
               : () => _annotateImage(context, embedContext, bytes),
@@ -178,34 +186,189 @@ class DataUriImageEmbedBuilder extends EmbedBuilder {
   }
 }
 
-/// Full-screen pinch-to-zoom viewer — also where resizing and annotating
-/// live now, instead of always-visible "S/M/L" chips cluttering the note
-/// itself (owner feedback, 2026-08-17: those "don't make sense" inline;
-/// resize should feel like a deliberate editor tool).
-class _FullScreenImageViewer extends StatefulWidget {
+/// The inline, selectable image — plain by default; tapping it shows a
+/// bordered selection frame with a delete button (top-right) and two drag
+/// handles (bottom corners) for resizing, matching the owner-supplied
+/// reference design (2026-09-11) instead of the old always-visible S/M/L
+/// chips or a hidden-away fullscreen slider.
+class _ResizableImageEmbed extends StatefulWidget {
+  const _ResizableImageEmbed({
+    required this.embedKey,
+    required this.image,
+    required this.initialWidthPercent,
+    required this.canEdit,
+    required this.onResize,
+    required this.onDelete,
+    required this.onLongPress,
+  });
+
+  final String embedKey;
+  final Widget image;
+  final double initialWidthPercent;
+  final bool canEdit;
+  final ValueChanged<double> onResize;
+  final VoidCallback onDelete;
+  final VoidCallback onLongPress;
+
+  @override
+  State<_ResizableImageEmbed> createState() => _ResizableImageEmbedState();
+}
+
+class _ResizableImageEmbedState extends State<_ResizableImageEmbed> {
+  late double _widthPercent = widget.initialWidthPercent;
+
+  @override
+  void initState() {
+    super.initState();
+    DataUriImageEmbedBuilder.selectedKey.addListener(_onSelectionChanged);
+  }
+
+  @override
+  void dispose() {
+    DataUriImageEmbedBuilder.selectedKey.removeListener(_onSelectionChanged);
+    super.dispose();
+  }
+
+  void _onSelectionChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _isSelected => DataUriImageEmbedBuilder.selectedKey.value == widget.embedKey;
+
+  void _select() {
+    if (!widget.canEdit) return;
+    // Dismissing the keyboard here (rather than only on delete/resize) is
+    // the actual fix for "keyboard shouldn't pop up while I'm resizing" —
+    // selecting the image is the moment that used to leave the text field
+    // focused underneath the newly-shown handles.
+    FocusScope.of(context).unfocus();
+    DataUriImageEmbedBuilder.selectedKey.value = widget.embedKey;
+  }
+
+  void _onHandleDrag(DragUpdateDetails details, double totalWidth) {
+    if (totalWidth <= 0) return;
+    final deltaPercent = (details.delta.dx / totalWidth) * 100;
+    setState(() => _widthPercent = (_widthPercent + deltaPercent).clamp(20.0, 100.0));
+  }
+
+  void _onHandleDragEnd() => widget.onResize(_widthPercent);
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final totalWidth = constraints.maxWidth;
+        final imageWidth = totalWidth * (_widthPercent / 100);
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _select,
+            onLongPress: widget.onLongPress,
+            child: SizedBox(
+              // Extra margin around the actual image so the handles (which
+              // sit half outside the image's own edge) have room without
+              // getting clipped by the document's own layout.
+              width: imageWidth + 20,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(AppRadii.md),
+                      child: SizedBox(width: imageWidth, child: widget.image),
+                    ),
+                  ),
+                  if (_isSelected && widget.canEdit) ...[
+                    Positioned(
+                      left: 10,
+                      top: 10,
+                      width: imageWidth,
+                      bottom: 10,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: AppColors.primary, width: 2),
+                            borderRadius: BorderRadius.circular(AppRadii.md),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: widget.onDelete,
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          decoration: const BoxDecoration(color: AppColors.danger, shape: BoxShape.circle),
+                          child: const Icon(Icons.close_rounded, size: 16, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      bottom: 0,
+                      child: GestureDetector(
+                        onPanUpdate: (details) => _onHandleDrag(details, totalWidth),
+                        onPanEnd: (_) => _onHandleDragEnd(),
+                        child: const _ResizeHandle(),
+                      ),
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: GestureDetector(
+                        onPanUpdate: (details) => _onHandleDrag(details, totalWidth),
+                        onPanEnd: (_) => _onHandleDragEnd(),
+                        child: const _ResizeHandle(),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ResizeHandle extends StatelessWidget {
+  const _ResizeHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.primary, width: 3),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 4)],
+      ),
+    );
+  }
+}
+
+/// Full-screen pinch-to-zoom viewer, reached with a long-press — resizing
+/// now happens inline (see _ResizableImageEmbed), so this is just for
+/// getting a closer look and, if the image has one, re-opening the sketch
+/// tool on top of it.
+class _FullScreenImageViewer extends StatelessWidget {
   const _FullScreenImageViewer({
     required this.image,
-    required this.bytes,
     required this.canEdit,
-    required this.initialWidthPercent,
-    required this.onResize,
     required this.onAnnotate,
   });
 
   final Widget image;
-  final Uint8List? bytes;
   final bool canEdit;
-  final double initialWidthPercent;
-  final ValueChanged<double> onResize;
   final VoidCallback? onAnnotate;
-
-  @override
-  State<_FullScreenImageViewer> createState() => _FullScreenImageViewerState();
-}
-
-class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
-  late double _widthPercent = widget.initialWidthPercent;
-  bool _showResize = false;
 
   @override
   Widget build(BuildContext context) {
@@ -216,63 +379,20 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
         foregroundColor: Colors.white,
         title: const Text('Image'),
         actions: [
-          if (widget.canEdit)
-            IconButton(
-              icon: const Icon(Icons.photo_size_select_large_outlined),
-              tooltip: 'Resize',
-              onPressed: () => setState(() => _showResize = !_showResize),
-            ),
-          if (widget.onAnnotate != null)
+          if (canEdit && onAnnotate != null)
             IconButton(
               icon: const Icon(Icons.draw_outlined),
               tooltip: 'Annotate image',
-              onPressed: widget.onAnnotate,
+              onPressed: onAnnotate,
             ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Center(
-              child: InteractiveViewer(
-                minScale: 0.5,
-                maxScale: 6,
-                child: widget.image,
-              ),
-            ),
-          ),
-          if (_showResize)
-            Container(
-              color: Colors.black,
-              padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.photo_size_select_small_outlined, color: Colors.white70, size: 18),
-                      Expanded(
-                        child: Slider(
-                          value: _widthPercent,
-                          min: 20,
-                          max: 100,
-                          divisions: 16,
-                          label: '${_widthPercent.round()}%',
-                          onChanged: (value) => setState(() => _widthPercent = value),
-                          onChangeEnd: widget.onResize,
-                        ),
-                      ),
-                      const Icon(Icons.photo_size_select_large_outlined, color: Colors.white70, size: 22),
-                    ],
-                  ),
-                  Text(
-                    'Size in note: ${_widthPercent.round()}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-        ],
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.5,
+          maxScale: 6,
+          child: image,
+        ),
       ),
     );
   }

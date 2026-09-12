@@ -32,6 +32,7 @@ class _FeatureCardData {
     required this.bg,
     required this.iconColor,
     required this.route,
+    this.imageAsset,
   });
 
   final IconData icon;
@@ -40,6 +41,11 @@ class _FeatureCardData {
   final Color bg;
   final Color iconColor;
   final String route;
+
+  /// When set, this image is rendered instead of [icon] — owner-supplied
+  /// custom art for cards where a default Material icon didn't look
+  /// distinctive enough (owner feedback, 2026-08-22).
+  final String? imageAsset;
 }
 
 // All 11 features, in the exact order the client specified (2026-08-15
@@ -57,6 +63,7 @@ const _features = [
     bg: AppColors.systemsCardBg,
     iconColor: AppColors.systemsIcon,
     route: '/systems',
+    imageAsset: 'assets/images/home/systems.png',
   ),
   _FeatureCardData(
     icon: Icons.medical_services_rounded,
@@ -65,14 +72,16 @@ const _features = [
     bg: AppColors.symptomsCardBg,
     iconColor: AppColors.symptomsIcon,
     route: '/symptom-checker',
+    imageAsset: 'assets/images/home/symptoms.png',
   ),
   _FeatureCardData(
     icon: Icons.medication_rounded,
-    title: 'Symptom-Based Drug Recommendations',
+    title: 'Drug Recommendations',
     description: 'AI Clinical Pharmacist',
     bg: AppColors.drugRecsCardBg,
     iconColor: AppColors.drugRecsIcon,
     route: '/drug-recommendations',
+    imageAsset: 'assets/images/home/drug_recommendations.png',
   ),
   _FeatureCardData(
     icon: Icons.local_pharmacy_rounded,
@@ -81,6 +90,7 @@ const _features = [
     bg: AppColors.formularyCardBg,
     iconColor: AppColors.formularyIcon,
     route: '/formulary',
+    imageAsset: 'assets/images/home/formulary.png',
   ),
   _FeatureCardData(
     icon: Icons.note_alt_rounded,
@@ -89,6 +99,7 @@ const _features = [
     bg: AppColors.notesCardBg,
     iconColor: AppColors.notesIcon,
     route: '/notes',
+    imageAsset: 'assets/images/home/notes.png',
   ),
   _FeatureCardData(
     icon: Icons.auto_awesome_rounded,
@@ -97,6 +108,7 @@ const _features = [
     bg: AppColors.aiCardBg,
     iconColor: AppColors.aiIcon,
     route: '/ai-chat',
+    imageAsset: 'assets/images/home/medaculous_ai.png',
   ),
   _FeatureCardData(
     icon: Icons.calculate_rounded,
@@ -105,6 +117,7 @@ const _features = [
     bg: AppColors.calculatorCardBg,
     iconColor: AppColors.calculatorIcon,
     route: '/calculator',
+    imageAsset: 'assets/images/home/calculator.png',
   ),
   _FeatureCardData(
     icon: Icons.menu_book_rounded,
@@ -113,6 +126,7 @@ const _features = [
     bg: AppColors.knowledgeHubCardBg,
     iconColor: AppColors.knowledgeHubIcon,
     route: '/knowledge-hub',
+    imageAsset: 'assets/images/home/knowledge_hub.png',
   ),
   _FeatureCardData(
     icon: Icons.local_hospital_rounded,
@@ -121,6 +135,7 @@ const _features = [
     bg: AppColors.wardCardBg,
     iconColor: AppColors.wardIcon,
     route: '/ward-companion',
+    imageAsset: 'assets/images/home/ward_companion.png',
   ),
   _FeatureCardData(
     icon: Icons.school_rounded,
@@ -129,6 +144,7 @@ const _features = [
     bg: AppColors.examPlannerCardBg,
     iconColor: AppColors.examPlannerIcon,
     route: '/exam-planner',
+    imageAsset: 'assets/images/home/exam_planner.png',
   ),
   _FeatureCardData(
     icon: Icons.checklist_rtl_rounded,
@@ -137,6 +153,7 @@ const _features = [
     bg: AppColors.osceCardBg,
     iconColor: AppColors.osceIcon,
     route: '/osce',
+    imageAsset: 'assets/images/home/osce.png',
   ),
 ];
 
@@ -262,10 +279,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     crossAxisCount: 2,
                     mainAxisSpacing: AppSpacing.md,
                     crossAxisSpacing: AppSpacing.md,
-                    // Taller than before (owner feedback, 2026-08-17: never
-                    // truncate a title — "Symptom-Based Drug Recommendations"
-                    // needs up to 3 lines to show in full).
-                    childAspectRatio: 0.78,
+                    // Shortened slightly (owner feedback, 2026-08-22) now
+                    // that titles are short enough to not need the extra
+                    // height "Symptom-Based Drug Recommendations" used to.
+                    childAspectRatio: 0.9,
                   ),
                   itemCount: _features.length,
                   itemBuilder: (context, index) => _FeatureCard(
@@ -346,15 +363,8 @@ class _FeatureCard extends StatelessWidget {
         // different colors") rather than a plain white/slate card with only
         // a small colored icon chip.
         decoration: BoxDecoration(
-          color: data.bg,
+          color: AppColors.cardBg(data.bg, isDark),
           borderRadius: BorderRadius.circular(AppSpacing.lg),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          ],
         ),
         // Centered layout (owner feedback, 2026-08-17: left-aligned icon and
         // text looked wrong — "must be in center"). Text has no maxLines/
@@ -366,18 +376,24 @@ class _FeatureCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(data.icon, color: data.iconColor, size: 32),
+            data.imageAsset != null
+                ? Image.asset(data.imageAsset!, width: 36, height: 36)
+                : Icon(data.icon, color: data.iconColor, size: 32),
             const SizedBox(height: AppSpacing.sm),
             Text(
               data.title,
               textAlign: TextAlign.center,
-              style: AppTextStyles.bodyStrong.copyWith(color: AppColors.cardTitleText),
+              style: AppTextStyles.bodyStrong.copyWith(
+                color: isDark ? Colors.white : AppColors.cardTitleText,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               data.description,
               textAlign: TextAlign.center,
-              style: AppTextStyles.micro.copyWith(color: AppColors.cardTitleText.withValues(alpha: 0.7)),
+              style: AppTextStyles.micro.copyWith(
+                color: (isDark ? Colors.white : AppColors.cardTitleText).withValues(alpha: 0.7),
+              ),
             ),
           ],
         ),

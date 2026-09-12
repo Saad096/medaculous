@@ -118,8 +118,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.email],
                   validator: (value) {
-                    if (value == null || value.trim().isEmpty)
+                    if (value == null || value.trim().isEmpty) {
                       return 'Enter your email';
+                    }
                     if (!value.contains('@')) return 'Enter a valid email';
                     return null;
                   },
@@ -133,8 +134,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.newPassword],
                   validator: (value) {
-                    if (value == null || value.length < 8)
+                    if (value == null || value.length < 8) {
                       return 'At least 8 characters';
+                    }
                     return null;
                   },
                 ),
@@ -146,8 +148,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                   obscureText: true,
                   textInputAction: TextInputAction.done,
                   validator: (value) {
-                    if (value != _passwordController.text)
+                    if (value != _passwordController.text) {
                       return 'Passwords do not match';
+                    }
                     return null;
                   },
                   onSubmitted: (_) => _submit(),

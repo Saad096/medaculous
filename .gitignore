@@ -36,6 +36,11 @@ frontend/ios/Flutter/Flutter.podspec
 frontend/*.iml
 frontend/.idea/
 
+# Per-machine --dart-define-from-file base URLs (see README.md §6c) — only
+# .example.json templates are tracked, same pattern as backend/.env.example.
+frontend/config/*.json
+!frontend/config/*.example.json
+
 # --- Node (only relevant if the archived legacy app is ever restored) ---
 node_modules/
 
@@ -56,3 +61,4 @@ node_modules/
 /*.docx
 /screenshots
 .claude
+.~lock.Medaculous Scope Document for developer.docx#

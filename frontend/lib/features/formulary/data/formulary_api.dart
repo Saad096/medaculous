@@ -30,6 +30,20 @@ class FormularyApi {
     }
   }
 
+  /// Regenerates every content field for an already-curated drug via AI —
+  /// the "Enhance Profile with AI" button on the detail screen.
+  Future<DrugProfile> enhanceProfile(String id) async {
+    try {
+      final response = await _dio.post(
+        '/formulary/drugs/$id/enhance',
+        options: Options(receiveTimeout: const Duration(seconds: 150)),
+      );
+      return DrugProfile.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
   Future<SearchOrCreateResult> searchOrCreate(String genericName) async {
     try {
       final response = await _dio.post(

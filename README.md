@@ -73,11 +73,16 @@ Medaculous v1 ZIP/
 │   │                            domain/ (models) · data/ (API client) ·
 │   │                            presentation/ (providers + screens/widgets)
 │   ├── assets/                   Logo, app icon source, fonts
+│   ├── config/                   --dart-define-from-file base URLs (see §6c) —
+│   │                            only *.example.json is tracked
 │   └── android/, ios/            Native platform projects
 ├── docs/                        Design/discovery notes from the original build (reference only)
 ├── screenshots/                 Client-supplied reference screenshots (gitignored — see §3)
 ├── docker-compose.yml           Backend in Docker, connecting out to system Postgres
-└── docker-compose.dev.yml       Overlay: live-reload for docker-compose.yml
+├── docker-compose.dev.yml       Overlay: live-reload for docker-compose.yml
+└── .env.example                 Template for docker-compose.yml's own variable
+                                 substitution (see §5/§6) — a different file from
+                                 backend/.env.example
 ```
 
 **Postgres always runs as a system service — never inside a container**, whether the
@@ -96,10 +101,15 @@ one-off deliverables, not source, and would otherwise bloat every clone forever.
 on disk locally; they just don't get committed. Everything else — all backend and frontend
 source, Alembic migrations, Docker config, and `docs/` — is tracked normally.
 
-Also gitignored, for the usual reasons: `backend/.env` (real secrets — only
-`.env.example` is committed), `backend/.venv/`, `backend/data/` (user-uploaded files),
-Flutter's `build/`/`.dart_tool/`, Android's `key.properties`/`*.jks` (a real release
-signing key — see `frontend/README.md`), and standard editor/OS noise.
+Also gitignored, for the usual reasons: `backend/.env` and the root-level `.env` (real
+secrets/per-machine values — only their `.env.example` templates are committed),
+`backend/.venv/`, `backend/data/` (user-uploaded files), Flutter's `build/`/`.dart_tool/`,
+`frontend/config/*.json` (per-machine base URLs — only `*.example.json` is committed, see
+§6c), Android's `key.properties`/`*.jks` (a real release signing key — see
+`frontend/README.md`), and standard editor/OS noise. There's no `node_modules/` in this
+repo at all (no JS build tooling — the legacy React prototype mentioned in §1 is archived
+outside this checkout, not part of it), but the pattern is still in `.gitignore` as a
+no-cost safeguard in case that ever changes.
 
 ---
 
@@ -122,6 +132,15 @@ signing key — see `frontend/README.md`), and standard editor/OS noise.
 Copied from `backend/.env.example`, which has a comment above every line explaining what
 it's for — read that file alongside this list. The short version of what's required
 before the app will even boot, versus what can stay blank until you have it:
+
+> **Two different `.env` files, don't mix them up:** `backend/.env` (this section) is read
+> by the FastAPI app itself, inside the container or the virtualenv. The **root-level**
+> `.env` (copied from **`.env.example`** at the repo root, a separate file) is read only
+> by `docker-compose.yml` itself, for the Postgres user/password/database name and the
+> published port — see the callout in **§6** below. On a fresh clone matching the local
+> dev defaults (Postgres user `saad`, password `123`, database `medaculous`, backend on
+> port 8000) you don't need a root `.env` at all; it only matters once a machine's setup
+> differs, e.g. deploying to a VM (§8).
 
 **Must be set to boot at all:**
 - `DATABASE_URL` — see §6a below; same value whether you run the backend via Docker or
@@ -221,10 +240,17 @@ by hand wipes them.
 > the connection string used *inside* Docker specifically; `host.docker.internal` is
 > the one hostname Docker resolves to your real machine on every platform (Desktop and
 > native Linux Engine alike, via the `extra_hosts` entry already in the compose file).
-> The override only replaces the host — it reuses the same user/password/db name from
-> `.env`. **If you change those in `.env`, update the matching line in
-> `docker-compose.yml` to match.** Running without Docker (§6b) has no such issue —
-> `localhost` there really is the machine, so `.env` is used completely unmodified.
+> Running without Docker (§6b) has no such issue — `localhost` there really is the
+> machine, so `.env` is used completely unmodified.
+>
+> The override only replaces the host — the Postgres user, password, and database name
+> come from `${DB_USER}` / `${DB_PASSWORD}` / `${DB_NAME}`, which Docker Compose fills in
+> from the **root-level** `.env` (see `.env.example` at the repo root — a different file
+> from `backend/.env`), defaulting to `saad` / `123` / `medaculous` if that file doesn't
+> exist. That means this works unmodified on a fresh clone using the local dev defaults
+> from §6a, and a machine with a different Postgres user (a shared VM, say — see §8) only
+> needs its own root `.env`, never a hand-edit to this tracked file. The published port
+> works the same way via `${BACKEND_PORT}` (default `8000`).
 
 **Port already in use?** If you also have the backend running outside Docker (§6b) on the
 same machine, both can't bind port 8000 at once — stop one first (`Ctrl+C` on the
@@ -325,21 +351,25 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1
 adb reverse tcp:8000 tcp:8000
 flutter run --dart-define=API_BASE_URL=http://localhost:8000/api/v1
 
-# Any device, backend on a remote server by IP address:
-flutter run --dart-define=API_BASE_URL=http://203.0.113.10:8000/api/v1
+# Any device, backend on a remote server by IP address (this project's current VM):
+flutter run --dart-define=API_BASE_URL=http://178.104.13.19:8001/api/v1
 
 # Any device, backend behind a real domain (recommended for production — also
 # required if you want https:// instead of a bare IP):
 flutter run --dart-define=API_BASE_URL=https://api.medaculous.com/api/v1
 ```
 
-If you find yourself repeating a long `--dart-define` line, put it in a JSON file instead:
+Instead of repeating a long `--dart-define` line, this repo ships two ready JSON files —
+`frontend/config/dev.example.json` and `frontend/config/prod.example.json` (tracked; the
+non-`.example` versions are gitignored, same pattern as `.env`/`.env.example`):
 
-```json
-// frontend/config/prod.json
-{ "API_BASE_URL": "https://api.medaculous.com/api/v1" }
-```
 ```bash
+cd frontend
+cp config/dev.example.json config/dev.json      # already localhost:8000, no edit needed
+cp config/prod.example.json config/prod.json    # already points at this project's VM —
+                                                  # edit the IP/domain if that ever changes
+flutter run --dart-define-from-file=config/dev.json
+# or, pointed at the VM:
 flutter run --dart-define-from-file=config/prod.json
 ```
 
@@ -391,39 +421,82 @@ the list (it's gitignored, but worth a glance — that file holds real secrets).
 
 ## 8. Deploying the backend to a remote VM
 
+### This project's current VM — port plan
+
+Medaculous is deployed on a **shared** VM (`ubuntu-16gb-nbg1-2`, `178.104.13.19`, a
+Hetzner Cloud box in the Nuremberg region) that already runs other, unrelated apps in
+Docker. Before picking a port for anything new on a shared machine, always check
+`docker ps` first — publishing a port another container already uses fails loudly (Docker
+refuses to start), but it's still worth planning around on purpose rather than by
+trial and error. This is what was already running when Medaculous was added, and the
+port chosen for it as a result:
+
+| Port | Bound to | Used by |
+|---|---|---|
+| 50051 | `0.0.0.0` (public) | `mih-whispercpp` — unrelated app, already there |
+| 3004, 8050, 5442, 6389 | `127.0.0.1` (loopback only) | the `maktab` stack — unrelated app, already there |
+| 5432 | `127.0.0.1` (loopback only) | **Medaculous's own Postgres**, installed as a system service per §6a — free on this VM, not used by anything else (the `maktab` stack has its own separate containerized Postgres on 5442, not 5432) |
+| **8001** | `0.0.0.0` (public) | **Medaculous backend** — this is the one port that needs opening in the firewall (step 3 below) |
+
+Medaculous's backend uses **8001**, not the `8000` used everywhere else in this README
+for local dev, purely because that's the free port on this specific shared VM — it's a
+per-machine choice, not a code difference. That's exactly what the root-level `.env`
+from §6/§6a exists for:
+
+```bash
+# On the VM, in the repo root (alongside docker-compose.yml):
+cp .env.example .env
+```
+```bash
+# .env — match whatever Postgres user/password you create for Medaculous in §6a on
+# this VM, and set the port to the one this VM's plan above says is free:
+DB_USER=medaculous
+DB_PASSWORD=<pick a real password, not a placeholder>
+DB_NAME=medaculous
+BACKEND_PORT=8001
+```
+
+### Steps
+
 1. Get the code onto the VM — now that it's a git repo (§7), the simplest path is
    `git clone` your GitHub repo directly on the VM (or `scp`/`rsync` if you'd rather not
    involve GitHub). Then follow **§6** (Docker, recommended) or **§6b** (no Docker) above,
    on the VM itself.
-2. Set `APP_BASE_URL` in `backend/.env` to the VM's real address (its IP or a domain
-   pointed at it), not `localhost`.
+2. Set `APP_BASE_URL` in `backend/.env` to `http://178.104.13.19:8001` (the VM's real
+   address **and** the port from the plan above), not `localhost`.
 3. **Open the port.** This trips people up more than anything else here — the backend
    can be running perfectly and still be unreachable from your phone because nothing
-   let port 8000 through:
-   - **Cloud provider firewall** (this is the one people forget): AWS Security Groups,
-     GCP Firewall Rules, Azure Network Security Groups, or your VPS provider's firewall
-     panel — add an inbound rule allowing TCP port 8000 (or 443 if you put a reverse
-     proxy in front, see below) from your IP or `0.0.0.0/0`.
+   let the port through. On this VM specifically, that's **8001/tcp**:
+   - **Hetzner Cloud Firewall** (this is the one people forget, since it's a separate
+     panel from the VM itself): in the Hetzner Cloud Console, under this server's
+     **Firewalls**, add an inbound rule allowing TCP port **8001** from `0.0.0.0/0` (or
+     your own IP, if you'd rather restrict it). A different cloud provider calls this
+     Security Groups (AWS), Firewall Rules (GCP), or Network Security Groups (Azure) —
+     same idea, different name, wherever else this ever gets deployed.
    - **The VM's own firewall**, if it has one active:
      ```bash
-     sudo ufw allow 8000/tcp     # Ubuntu/Debian with ufw
+     sudo ufw allow 8001/tcp     # Ubuntu/Debian with ufw
      ```
    - Confirm the app is actually listening on all interfaces, not just the VM's internal
      loopback — it already is by default here (`--host 0.0.0.0` in both the Docker CMD
      and the bare `uvicorn` command above), but double-check if you ever change that.
 4. For production, prefer a real domain + HTTPS over a bare IP: point a domain's DNS at
-   the VM, put a reverse proxy (nginx, Caddy) in front of port 8000 to terminate TLS, and
+   the VM, put a reverse proxy (nginx, Caddy) in front of port 8001 to terminate TLS, and
    use `https://your-domain.com/api/v1` as the mobile app's `API_BASE_URL`. Sending
    passwords/tokens over plain `http://` to a public IP is fine for a quick test, not for
-   anything real.
-5. Install Postgres on the VM the same way as §6a and run `docker compose up --build -d`
-   (same command as local dev — there's only one `docker-compose.yml`, and it always
-   connects out to system Postgres, never a container, so nothing changes between local
-   and production here). Migrations still run automatically on startup — nothing extra
-   to run by hand once the Postgres system service itself is up.
+   anything real — this is worth doing before the app goes to real users, not just a
+   nice-to-have.
+5. Install Postgres on the VM the same way as §6a — this creates Medaculous's **own**
+   Postgres user/database (see the port plan above: this VM's other app already has its
+   own separate containerized Postgres, Medaculous does not share it). Then set that root
+   `.env` from above and run `docker compose up --build -d` (same command as local dev —
+   there's only one `docker-compose.yml`, parameterized per-machine via that root `.env`
+   rather than needing a different compose file). Migrations still run automatically on
+   startup — nothing extra to run by hand once the Postgres system service itself is up.
 6. **Load the reference content** (only needed once, on a fresh database — see below).
 7. Rebuild the Flutter app pointed at the VM's real address before installing it on any
-   device meant to use the deployed backend — see §6c. A dev build pointed at
+   device meant to use the deployed backend — see §6c (`frontend/config/prod.json` already
+   points at `http://178.104.13.19:8001/api/v1`). A dev build pointed at
    `localhost`/`10.0.2.2` will never reach a remote VM; that's a build-time flag, not
    something that auto-detects the server.
 
@@ -475,9 +548,10 @@ double check `docker-compose.yml`'s `DATABASE_URL` line matches the user/passwor
 you actually created in §6a — see the callout in §6 for why that line exists instead of
 reusing `.env`'s value verbatim.
 
-**"`curl http://localhost:8000/docs` works on the VM itself, but not from my phone/laptop"**
-→ Almost always the cloud firewall / security group from §8 step 3, not the app.
-Test from *outside* the VM with `curl http://<vm-ip>:8000/docs` (from your own laptop,
+**"`curl http://localhost:<port>/docs` works on the VM itself, but not from my
+phone/laptop"** → Almost always the cloud firewall / security group from §8 step 3, not
+the app (on this project's current VM, `<port>` is `8001` — see §8's port plan). Test
+from *outside* the VM with `curl http://178.104.13.19:8001/docs` (from your own laptop,
 not SSH'd into the VM) — if that hangs/times out, it's the firewall; if it returns a
 response but the phone still can't reach it, check the phone is actually online and not
 on a network that blocks that port.

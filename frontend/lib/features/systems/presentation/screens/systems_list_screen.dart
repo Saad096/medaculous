@@ -185,6 +185,16 @@ class _ViewToggleButton extends StatelessWidget {
   }
 }
 
+// Custom illustrated icons for systems where no emoji reads correctly —
+// owner feedback, 2026-08-22: Gastroenterology's seeded emoji was actually a
+// CJK character, and Endocrinology's butterfly didn't match the client's
+// reference art. Keyed by system name so any other system can get the same
+// treatment later just by adding a row here.
+const _customSystemIcons = <String, String>{
+  'Gastroenterology': 'assets/images/systems/gastroenterology.png',
+  'Endocrinology': 'assets/images/systems/endocrinology.png',
+};
+
 class _IconGrid extends StatelessWidget {
   const _IconGrid({required this.systems});
 
@@ -192,6 +202,7 @@ class _IconGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GridView.builder(
       padding: const EdgeInsets.all(AppSpacing.md),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -205,12 +216,13 @@ class _IconGrid extends StatelessWidget {
       itemCount: systems.length,
       itemBuilder: (context, index) {
         final system = systems[index];
-        final (bg, iconColor) = AppColors.cardPalette[index % AppColors.cardPalette.length];
+        final (bg, _) = AppColors.cardPalette[index % AppColors.cardPalette.length];
         return Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: bg,
+            color: AppColors.cardBg(bg, isDark),
             borderRadius: BorderRadius.circular(AppSpacing.md),
+            border: Border.all(color: Colors.black),
           ),
           child: InkWell(
             onTap: () =>
@@ -220,7 +232,9 @@ class _IconGrid extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(system.icon, style: const TextStyle(fontSize: 28)),
+                  _customSystemIcons.containsKey(system.name)
+                      ? Image.asset(_customSystemIcons[system.name]!, width: 32, height: 32)
+                      : Text(system.icon, style: const TextStyle(fontSize: 28)),
                   const SizedBox(height: AppSpacing.xs),
                   // FittedBox shrinks the whole word to fit one line instead
                   // of wrapping — a plain 2-line wrap left a single orphan
@@ -233,7 +247,10 @@ class _IconGrid extends StatelessWidget {
                       system.name,
                       textAlign: TextAlign.center,
                       softWrap: false,
-                      style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w700, color: iconColor),
+                      style: AppTextStyles.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
                     ),
                   ),
                 ],

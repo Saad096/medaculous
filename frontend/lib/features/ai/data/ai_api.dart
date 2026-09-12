@@ -28,7 +28,7 @@ class AiApi {
         data: {
           'message': message,
           'mode': mode.apiValue,
-          if (conversationId != null) 'conversation_id': conversationId,
+          'conversation_id': ?conversationId,
         },
         options: Options(responseType: ResponseType.stream),
       );

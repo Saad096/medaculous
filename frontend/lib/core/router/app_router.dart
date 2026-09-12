@@ -129,9 +129,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           // `extra` is either a plain Note? (existing flows — notes list, and
           // opened without a note extra means "new note in no folder") or a
-          // {note, folderId, folderBreadcrumb} map used by entry points that
-          // need to pre-file a brand-new note into a specific folder (e.g.
-          // "Add Note" from a disease topic — see disease_detail_screen.dart).
+          // map used by entry points that need something other than that
+          // default: {note, folderId, folderBreadcrumb} pre-files a
+          // brand-new note into a specific folder, and {diseaseId,
+          // diseaseNoteContentHtml, folderBreadcrumb} opens a disease
+          // topic's single private note instead (see
+          // disease_detail_screen.dart).
           final extra = state.extra;
           if (extra is Map) {
             return NoteEditorScreen(
@@ -139,6 +142,8 @@ final routerProvider = Provider<GoRouter>((ref) {
               initialFolderId: extra['folderId'] as String?,
               folderBreadcrumb: extra['folderBreadcrumb'] as String?,
               autoFocus: extra['autoFocus'] as bool? ?? false,
+              diseaseId: extra['diseaseId'] as String?,
+              diseaseNoteContentHtml: extra['diseaseNoteContentHtml'] as String?,
             );
           }
           return NoteEditorScreen(note: extra as Note?);

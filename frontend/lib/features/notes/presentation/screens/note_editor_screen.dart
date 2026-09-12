@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/widgets/sketch_screen.dart';
+import '../../../systems/presentation/providers/systems_providers.dart';
 import '../../domain/note.dart';
 import '../../domain/note_content_codec.dart';
 import '../providers/notes_providers.dart';
@@ -29,17 +30,20 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
     this.initialFolderId,
     this.folderBreadcrumb,
     this.autoFocus = false,
+    this.diseaseId,
+    this.diseaseNoteContentHtml,
   });
 
   final Note? note;
 
   /// Folder a brand-new note should be filed into (e.g. a disease's matching
   /// specialty folder). Ignored when [note] is non-null — an existing note
-  /// keeps its own folder.
+  /// keeps its own folder. Also ignored when [diseaseId] is set.
   final String? initialFolderId;
 
   /// Optional label shown above the title (e.g. "Cardiology") when opened
   /// from a disease topic, mirroring the reference UI's folder breadcrumb.
+  /// When [diseaseId] is set this is the disease name instead.
   final String? folderBreadcrumb;
 
   /// Focuses the body straight away — used when this screen opens as the
@@ -47,6 +51,21 @@ class NoteEditorScreen extends ConsumerStatefulWidget {
   /// the user can start typing immediately instead of tapping an "Add
   /// note" button first (owner feedback, 2026-08-17).
   final bool autoFocus;
+
+  /// When set, this editor is the single private note attached to this
+  /// disease topic (app.models.disease.DiseaseNote) instead of a regular
+  /// Notes-feature note — owner feedback, 2026-09-11: a topic note must
+  /// never appear in, or be creatable from, the app-wide Notes section, and
+  /// there can only ever be one per topic. Saving calls
+  /// SystemsApi.saveDiseaseNote instead of the folder-based notes API, and
+  /// the title field (there's nothing to title — it's just "this topic's
+  /// note") is hidden.
+  final String? diseaseId;
+
+  /// The disease's existing note content (Quill Delta JSON), if any —
+  /// fetched by the caller before opening this screen. Null/empty means the
+  /// user hasn't written one yet.
+  final String? diseaseNoteContentHtml;
 
   @override
   ConsumerState<NoteEditorScreen> createState() => _NoteEditorScreenState();
@@ -71,13 +90,21 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
     _noteId = widget.note?.id;
     _folderId = widget.note?.folderId ?? widget.initialFolderId;
 
-    final document = NoteContentCodec.decode(widget.note?.contentHtml ?? '');
+    final document = NoteContentCodec.decode(
+      widget.diseaseId != null
+          ? (widget.diseaseNoteContentHtml ?? '')
+          : (widget.note?.contentHtml ?? ''),
+    );
     _quillController = QuillController(
       document: document,
       selection: const TextSelection.collapsed(offset: 0),
     );
     _quillController.changes.listen((_) => _markDirty());
     _titleController.addListener(_markDirty);
+    // The editor regaining focus is exactly "the user tapped elsewhere to
+    // type" — the signal to drop any image's resize/delete selection state
+    // (owner feedback, 2026-09-11).
+    _editorFocusNode.addListener(_deselectImageOnFocus);
 
     if (widget.autoFocus) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _editorFocusNode.requestFocus());
@@ -86,11 +113,18 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   @override
   void dispose() {
+    _editorFocusNode.removeListener(_deselectImageOnFocus);
     _titleController.dispose();
     _quillController.dispose();
     _editorFocusNode.dispose();
     _editorScrollController.dispose();
     super.dispose();
+  }
+
+  void _deselectImageOnFocus() {
+    if (_editorFocusNode.hasFocus) {
+      DataUriImageEmbedBuilder.selectedKey.value = null;
+    }
   }
 
   void _markDirty() {
@@ -99,20 +133,26 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
   Future<void> _save() async {
     final title = _titleController.text.trim();
-    if (title.isEmpty && _quillController.document.isEmpty()) return;
+    if (widget.diseaseId == null && title.isEmpty && _quillController.document.isEmpty()) {
+      return;
+    }
     final content = NoteContentCodec.encode(_quillController.document);
 
     setState(() => _isSaving = true);
-    final api = ref.read(notesApiProvider);
-    if (_noteId == null) {
-      final created = await api.createNote(
-        title: title,
-        contentHtml: content,
-        folderId: _folderId,
-      );
-      _noteId = created.id;
+    if (widget.diseaseId != null) {
+      await ref.read(systemsApiProvider).saveDiseaseNote(widget.diseaseId!, content);
     } else {
-      await api.updateNote(_noteId!, title: title, contentHtml: content);
+      final api = ref.read(notesApiProvider);
+      if (_noteId == null) {
+        final created = await api.createNote(
+          title: title,
+          contentHtml: content,
+          folderId: _folderId,
+        );
+        _noteId = created.id;
+      } else {
+        await api.updateNote(_noteId!, title: title, contentHtml: content);
+      }
     }
     if (mounted) {
       setState(() {
@@ -321,22 +361,25 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     : const SizedBox.shrink(),
               ),
               const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.md,
-                  AppSpacing.lg,
-                  0,
-                ),
-                child: TextField(
-                  controller: _titleController,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                  decoration: const InputDecoration(
-                    hintText: 'Title',
-                    border: InputBorder.none,
+              // A disease-topic note has nothing to title — it's just "this
+              // topic's note" — so the title field is skipped entirely.
+              if (widget.diseaseId == null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.lg,
+                    AppSpacing.md,
+                    AppSpacing.lg,
+                    0,
+                  ),
+                  child: TextField(
+                    controller: _titleController,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                    decoration: const InputDecoration(
+                      hintText: 'Title',
+                      border: InputBorder.none,
+                    ),
                   ),
                 ),
-              ),
               Expanded(
                 child: QuillEditor(
                   focusNode: _editorFocusNode,

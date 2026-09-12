@@ -150,8 +150,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.email],
                   validator: (value) {
-                    if (value == null || value.trim().isEmpty)
+                    if (value == null || value.trim().isEmpty) {
                       return 'Enter your email';
+                    }
                     if (!value.contains('@')) return 'Enter a valid email';
                     return null;
                   },

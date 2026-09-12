@@ -124,8 +124,9 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                   textInputAction: TextInputAction.next,
                   autofillHints: const [AutofillHints.newPassword],
                   validator: (value) {
-                    if (value == null || value.length < 8)
+                    if (value == null || value.length < 8) {
                       return 'At least 8 characters';
+                    }
                     return null;
                   },
                 ),
@@ -137,8 +138,9 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                   obscureText: true,
                   textInputAction: TextInputAction.done,
                   validator: (value) {
-                    if (value != _passwordController.text)
+                    if (value != _passwordController.text) {
                       return 'Passwords do not match';
+                    }
                     return null;
                   },
                   onSubmitted: (_) => _submit(),

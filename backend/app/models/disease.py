@@ -69,3 +69,26 @@ class DiseaseSection(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class DiseaseNote(Base):
+    """A single private note a user can attach to one specific disease topic
+    (e.g. "Atrial Fibrillation") — deliberately separate from the general
+    Notes/Folders feature (see app.models.note.Note): owner feedback,
+    2026-09-11, a topic note must stay on that topic's page only and never
+    appear in the app-wide Notes section. One row per (user, disease) —
+    the unique constraint is what enforces "only one note per topic".
+    """
+
+    __tablename__ = "disease_notes"
+    __table_args__ = (UniqueConstraint("user_id", "disease_id", name="uq_disease_notes_user_disease"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    disease_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("diseases.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    content_html: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

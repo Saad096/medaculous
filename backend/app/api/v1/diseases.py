@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.disease import DISEASE_SECTION_ORDER, Disease, DiseaseSection, System
+from app.models.disease import DISEASE_SECTION_ORDER, Disease, DiseaseNote, DiseaseSection, System
 from app.models.user import User
-from app.schemas.disease import DiseaseDetailOut, DiseaseSummary, SystemOut
+from app.schemas.disease import DiseaseDetailOut, DiseaseNoteOut, DiseaseNoteUpdate, DiseaseSummary, SystemOut
 
 router = APIRouter(tags=["diseases"])
 
@@ -74,3 +74,38 @@ async def get_disease(
         category=disease.category,
         sections=ordered_sections,
     )
+
+
+@router.get("/diseases/{disease_id}/note", response_model=DiseaseNoteOut | None)
+async def get_disease_note(
+    disease_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DiseaseNote | None:
+    return await db.scalar(
+        select(DiseaseNote).where(DiseaseNote.disease_id == disease_id, DiseaseNote.user_id == user.id)
+    )
+
+
+@router.put("/diseases/{disease_id}/note", response_model=DiseaseNoteOut)
+async def upsert_disease_note(
+    disease_id: uuid.UUID,
+    payload: DiseaseNoteUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DiseaseNote:
+    disease = await db.get(Disease, disease_id)
+    if disease is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Disease not found.")
+
+    note = await db.scalar(
+        select(DiseaseNote).where(DiseaseNote.disease_id == disease_id, DiseaseNote.user_id == user.id)
+    )
+    if note is None:
+        note = DiseaseNote(user_id=user.id, disease_id=disease_id, content_html=payload.content_html)
+        db.add(note)
+    else:
+        note.content_html = payload.content_html
+    await db.commit()
+    await db.refresh(note)
+    return note

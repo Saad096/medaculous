@@ -38,7 +38,18 @@ class PharmacyApi {
           if (hepaticImpairment != null && hepaticImpairment.isNotEmpty) 'hepatic_impairment': hepaticImpairment,
           'country': country,
         },
-        options: Options(receiveTimeout: const Duration(seconds: 180)),
+        // Raised twice now: 180s, then 280s, both still hit live (2026-09-11)
+        // — a query whose first attempt truncates retries with double the
+        // token budget, and that retry can land as high as ~43k tokens for
+        // a genuinely broad case, which itself takes minutes to generate
+        // regardless of network conditions. This has to be long enough to
+        // outlast the *slowest realistic* two-call sequence rather than a
+        // typical one, or a perfectly healthy in-progress request keeps
+        // surfacing as a false "can't reach server" error. Matches the
+        // review button's own progress-bar window (_estimatedDuration in
+        // drug_recommendations_screen.dart), which is built to wait this
+        // long without ever falsely claiming completion.
+        options: Options(receiveTimeout: const Duration(minutes: 8)),
       );
       return RecommendationResult.fromJson(response.data as Map<String, dynamic>);
     } on DioException catch (e) {

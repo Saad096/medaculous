@@ -11,15 +11,21 @@ services:
     # actual machine. "host.docker.internal" is the one hostname Docker
     # resolves to the real host on every platform (Desktop AND native Linux
     # Engine, via extra_hosts below) — so this overrides just the host
-    # portion of DATABASE_URL, keeping the same user/password/db name you
-    # already set in .env. If you change those in .env, update this line
-    # to match.
+    # portion of DATABASE_URL.
+    #
+    # DB_USER/DB_PASSWORD/DB_NAME come from a root-level .env (see
+    # .env.example — NOT backend/.env, a different file) via Docker
+    # Compose's own variable substitution, with defaults matching the local
+    # dev setup from README §6a — so this works unmodified on a fresh clone,
+    # and a machine with a different Postgres user (e.g. a shared VM, see
+    # README §8) only needs its own root .env, never an edit to this
+    # tracked file.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      DATABASE_URL: postgresql+asyncpg://saad:123@host.docker.internal:5432/medaculous
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-saad}:${DB_PASSWORD:-123}@host.docker.internal:5432/${DB_NAME:-medaculous}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     # Uploaded PDFs and avatars (PDF_STORAGE_DIR / AVATAR_STORAGE_DIR) live
     # under here — without this volume they'd sit only in the container's
     # writable layer and vanish on every `docker compose up --build`.
