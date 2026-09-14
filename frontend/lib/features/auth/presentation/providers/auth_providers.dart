@@ -7,6 +7,7 @@ import '../../../../core/network/api_client.dart';
 import '../../../../core/storage/token_storage.dart';
 import '../../data/auth_api.dart';
 import '../../data/auth_repository.dart';
+import '../../data/legal_api.dart';
 import '../../data/oauth_service.dart';
 import '../../domain/user.dart';
 
@@ -34,6 +35,10 @@ final authApiProvider = Provider<AuthApi>(
 );
 
 final oauthServiceProvider = Provider<OAuthService>((ref) => OAuthService());
+
+final legalApiProvider = Provider<LegalApi>(
+  (ref) => LegalApi(ref.read(apiClientProvider).dio),
+);
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return AuthRepository(

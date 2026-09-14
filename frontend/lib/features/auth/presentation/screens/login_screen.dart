@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,7 @@ import '../../data/oauth_service.dart';
 import '../providers/auth_providers.dart';
 import '../widgets/auth_header.dart';
 import '../widgets/oauth_sign_in_button.dart';
+import 'legal_doc_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -214,6 +216,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   provider: OAuthProvider.apple,
                   onPressed: _signInWithApple,
                   isLoading: _oauthLoading == OAuthProvider.apple,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                // Google/Apple sign-in silently creates an account on first
+                // use — there's no separate "create account" step to attach
+                // the email/password flow's explicit checkbox to, and adding
+                // one here (an extra tap before the OAuth redirect even
+                // starts) would be unusual friction compared to how every
+                // major app handles social sign-in. Standard practice
+                // instead: plain notice text right where the action is,
+                // consent implied by continuing — no checkbox gate.
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  child: RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      style: AppTextStyles.caption.copyWith(color: context.secondaryText),
+                      children: [
+                        const TextSpan(text: 'By continuing with Google or Apple, you agree to our '),
+                        TextSpan(
+                          text: 'Terms of Service',
+                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const LegalDocScreen(type: LegalDocType.terms)),
+                            ),
+                        ),
+                        const TextSpan(text: ' and '),
+                        TextSpan(
+                          text: 'Privacy Policy',
+                          style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                          recognizer: TapGestureRecognizer()
+                            ..onTap = () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const LegalDocScreen(type: LegalDocType.privacy)),
+                            ),
+                        ),
+                        const TextSpan(text: '.'),
+                      ],
+                    ),
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.xxl),
                 Row(

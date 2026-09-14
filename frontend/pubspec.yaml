@@ -93,6 +93,7 @@ flutter:
     - assets/images/systems/gastroenterology.png
     - assets/images/home/
     - assets/images/sections/
+    - assets/images/onboarding/
     - assets/icon/app_icon.png
     - assets/sounds/timer_beep.wav
 

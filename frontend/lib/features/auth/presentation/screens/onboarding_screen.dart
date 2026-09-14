@@ -4,38 +4,16 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/storage/local_prefs.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/primary_button.dart';
 
-class _Slide {
-  const _Slide({required this.icon, required this.title, required this.body});
-  final IconData icon;
-  final String title;
-  final String body;
-}
+// Owner-supplied design, 2026-09-14: 11 fully designed slides (one per core
+// feature), each a complete self-contained image — headline, body copy, and
+// illustration already composed — not a template this code fills in.
+const _slideCount = 11;
+String _slideAsset(int index) => 'assets/images/onboarding/${index + 1}.jpeg';
 
-const _slides = [
-  _Slide(
-    icon: Icons.menu_book_rounded,
-    title: 'A structured medical reference',
-    body:
-        'Evidence-based coverage of diseases, drugs, and clinical calculators — organized for fast lookup on the ward or during revision.',
-  ),
-  _Slide(
-    icon: Icons.auto_awesome_rounded,
-    title: 'AI that understands context',
-    body:
-        'Ask Medaculous AI in Ward, ER, or Exam mode and get answers tuned to what you actually need right now.',
-  ),
-  _Slide(
-    icon: Icons.sync_rounded,
-    title: 'Your notes, everywhere',
-    body:
-        'Sign in once and your notes, exam plans, and saved references sync across every device.',
-  ),
-];
-
-/// Master spec §3.2: "Onboarding carousel (2-3 slides, skippable)".
+/// Master spec §3.2: "Onboarding carousel (2-3 slides, skippable)" — since
+/// expanded to 11 slides (one per feature) per the owner-supplied designs.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -60,7 +38,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isLast = _page == _slides.length - 1;
+    final isLast = _page == _slideCount - 1;
 
     return Scaffold(
       body: SafeArea(
@@ -79,44 +57,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
-                itemCount: _slides.length,
+                itemCount: _slideCount,
                 onPageChanged: (i) => setState(() => _page = i),
                 itemBuilder: (context, index) {
-                  final slide = _slides[index];
+                  // Each slide image already has its own flat background
+                  // baked in behind an inner rounded card, so displayed
+                  // edge-to-edge it reads as a pasted photo rather than a
+                  // native UI element. Wrapping it in its own rounded clip
+                  // + shadow instead gives it a proper floating-card feel
+                  // consistent with the rest of the app (owner feedback,
+                  // 2026-09-14: "rounder feel more good UI/UX").
                   return Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.xxl,
+                      horizontal: AppSpacing.xl,
+                      vertical: AppSpacing.md,
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(28),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            shape: BoxShape.circle,
+                    child: Container(
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadii.xl),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.18),
+                            blurRadius: 24,
+                            offset: const Offset(0, 10),
                           ),
-                          child: Icon(
-                            slide.icon,
-                            size: 56,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xxl),
-                        Text(
-                          slide.title,
-                          textAlign: TextAlign.center,
-                          style: AppTextStyles.headline,
-                        ),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(
-                          slide.body,
-                          textAlign: TextAlign.center,
-                          style: AppTextStyles.body.copyWith(
-                            color: context.secondaryText,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: Image.asset(_slideAsset(index), fit: BoxFit.contain),
                     ),
                   );
                 },
@@ -125,7 +93,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
-                _slides.length,
+                _slideCount,
                 (i) => AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   margin: const EdgeInsets.symmetric(horizontal: 4),

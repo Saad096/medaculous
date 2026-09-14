@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/offline_cache.dart';
 import '../domain/knowledge_hub.dart';
 
 /// Thin wrapper over backend/app/api/v1/knowledge_hub.py.
@@ -23,9 +24,14 @@ class KnowledgeHubApi {
     }
   }
 
+  // Folder/document metadata is available offline via the last-loaded copy
+  // (owner feedback, 2026-09-14) — opening a PDF's actual file content still
+  // requires being online. See core/network/offline_cache.dart.
   Future<List<PdfFolder>> listFolders() {
-    return _call(
-      () => _dio.get('/knowledge-hub/folders'),
+    return cachedApiGet(
+      _dio,
+      '/knowledge-hub/folders',
+      'kh_folders',
       (data) => (data as List<dynamic>)
           .map((e) => PdfFolder.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -54,17 +60,17 @@ class KnowledgeHubApi {
   }
 
   Future<List<PdfDocument>> listPdfs({String? folderId, String? q}) {
-    return _call(
-      () => _dio.get(
-        '/knowledge-hub/pdfs',
-        queryParameters: {
-          'folder_id': ?folderId,
-          if (q != null && q.isNotEmpty) 'q': q,
-        },
-      ),
+    return cachedApiGet(
+      _dio,
+      '/knowledge-hub/pdfs',
+      'kh_pdfs_${folderId ?? 'root'}_${q ?? ''}',
       (data) => (data as List<dynamic>)
           .map((e) => PdfDocument.fromJson(e as Map<String, dynamic>))
           .toList(),
+      queryParameters: {
+        'folder_id': ?folderId,
+        if (q != null && q.isNotEmpty) 'q': q,
+      },
     );
   }
 

@@ -7,6 +7,7 @@ from app.api.v1.diseases import router as diseases_router
 from app.api.v1.exam_planner import router as exam_planner_router
 from app.api.v1.formulary import router as formulary_router
 from app.api.v1.knowledge_hub import router as knowledge_hub_router
+from app.api.v1.legal import router as legal_router
 from app.api.v1.notes import router as notes_router
 from app.api.v1.osce import router as osce_router
 from app.api.v1.pharmacy import router as pharmacy_router
@@ -26,3 +27,4 @@ api_router.include_router(ward_router)
 api_router.include_router(exam_planner_router)
 api_router.include_router(osce_router)
 api_router.include_router(admin_router)
+api_router.include_router(legal_router)

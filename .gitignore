@@ -59,6 +59,7 @@ node_modules/
 /*.pdf
 /*.gif
 /*.docx
+/*.apk
 /screenshots
 .claude
 .~lock.Medaculous Scope Document for developer.docx#

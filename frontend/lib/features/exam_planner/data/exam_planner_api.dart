@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/offline_cache.dart';
 import '../domain/exam_planner.dart';
 
 // Matches the backend's YYYY-MM-DD date param format. Avoids adding the
@@ -24,16 +25,23 @@ class ExamPlannerApi {
     }
   }
 
+  // Available offline via the last-loaded copy (owner feedback, 2026-09-14)
+  // — creating/editing a setup or session still requires being online. See
+  // core/network/offline_cache.dart.
   Future<List<ExamInfo>> listExams() {
-    return _call(
-      () => _dio.get('/exam-planner/exams'),
+    return cachedApiGet(
+      _dio,
+      '/exam-planner/exams',
+      'exam_planner_exams',
       (data) => (data as List<dynamic>).map((e) => ExamInfo.fromJson(e as Map<String, dynamic>)).toList(),
     );
   }
 
   Future<ExamSetup?> getSetup() {
-    return _call(
-      () => _dio.get('/exam-planner/setup'),
+    return cachedApiGet(
+      _dio,
+      '/exam-planner/setup',
+      'exam_planner_setup',
       (data) => data == null ? null : ExamSetup.fromJson(data as Map<String, dynamic>),
     );
   }
@@ -76,15 +84,22 @@ class ExamPlannerApi {
   }
 
   Future<List<ExamSession>> getSchedule({required DateTime start, required DateTime end}) {
-    return _call(
-      () => _dio.get('/exam-planner/schedule', queryParameters: {'start_date': _dateStr(start), 'end_date': _dateStr(end)}),
+    final startStr = _dateStr(start);
+    final endStr = _dateStr(end);
+    return cachedApiGet(
+      _dio,
+      '/exam-planner/schedule',
+      'exam_planner_schedule_${startStr}_$endStr',
       (data) => (data as List<dynamic>).map((e) => ExamSession.fromJson(e as Map<String, dynamic>)).toList(),
+      queryParameters: {'start_date': startStr, 'end_date': endStr},
     );
   }
 
   Future<List<ExamSession>> getTodaySchedule() {
-    return _call(
-      () => _dio.get('/exam-planner/schedule/today'),
+    return cachedApiGet(
+      _dio,
+      '/exam-planner/schedule/today',
+      'exam_planner_schedule_today',
       (data) => (data as List<dynamic>).map((e) => ExamSession.fromJson(e as Map<String, dynamic>)).toList(),
     );
   }

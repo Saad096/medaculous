@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../../../core/network/offline_cache.dart';
 import '../../../core/storage/token_storage.dart';
 import '../domain/user.dart';
 import 'auth_api.dart';
@@ -90,6 +91,10 @@ class AuthRepository {
       }
     }
     await _tokenStorage.clear();
+    // A shared device signing into a different account should never see the
+    // previous account's cached offline reference data (owner feedback,
+    // 2026-09-14 offline-mode work — see core/network/offline_cache.dart).
+    await OfflineCache.clearAll();
   }
 
   Future<void> forgotPassword({required String email}) =>

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/offline_cache.dart';
 import '../domain/disease.dart';
 
 /// Thin wrapper over backend/app/api/v1/diseases.py.
@@ -21,9 +22,13 @@ class SystemsApi {
     }
   }
 
+  // Read-only reference content — available offline via the last-loaded
+  // copy (owner feedback, 2026-09-14). See core/network/offline_cache.dart.
   Future<List<MedicalSystem>> listSystems() {
-    return _call(
-      () => _dio.get('/systems'),
+    return cachedApiGet(
+      _dio,
+      '/systems',
+      'systems_list',
       (data) => (data as List<dynamic>)
           .map((e) => MedicalSystem.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -31,8 +36,10 @@ class SystemsApi {
   }
 
   Future<List<DiseaseSummary>> listDiseases(String systemId) {
-    return _call(
-      () => _dio.get('/systems/$systemId/diseases'),
+    return cachedApiGet(
+      _dio,
+      '/systems/$systemId/diseases',
+      'systems_diseases_$systemId',
       (data) => (data as List<dynamic>)
           .map((e) => DiseaseSummary.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -49,8 +56,10 @@ class SystemsApi {
   }
 
   Future<DiseaseDetail> getDisease(String diseaseId) {
-    return _call(
-      () => _dio.get('/diseases/$diseaseId'),
+    return cachedApiGet(
+      _dio,
+      '/diseases/$diseaseId',
+      'disease_detail_$diseaseId',
       (data) => DiseaseDetail.fromJson(data as Map<String, dynamic>),
     );
   }

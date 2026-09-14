@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO if settings.is_prod else logging.DEBUG)
 # change and rebuilding on a VM, `curl http://<vm>:<port>/health` showing
 # this exact string (not a previous one) confirms the fresh code is what's
 # actually running, without needing shell/git access on the VM itself.
-_BUILD_TAG = "2026-09-13.1-pharmacy-parsing-retry"
+_BUILD_TAG = "2026-09-14.1-legal-docs"
 
 app = FastAPI(title="Medaculous API", version="0.1.0")
 

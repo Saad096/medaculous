@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/offline_cache.dart';
 import '../domain/osce.dart';
 
 /// Thin wrapper over backend/app/api/v1/osce.py.
@@ -18,9 +19,13 @@ class OsceApi {
     }
   }
 
+  // Read-only reference content — available offline via the last-loaded
+  // copy (owner feedback, 2026-09-14). See core/network/offline_cache.dart.
   Future<List<OsceStation>> listStations() {
-    return _call(
-      () => _dio.get('/osce/stations'),
+    return cachedApiGet(
+      _dio,
+      '/osce/stations',
+      'osce_stations',
       (data) => (data as List<dynamic>).map((e) => OsceStation.fromJson(e as Map<String, dynamic>)).toList(),
     );
   }

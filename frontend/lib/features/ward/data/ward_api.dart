@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/offline_cache.dart';
 import '../domain/ward.dart';
 
 /// Thin wrapper over backend/app/api/v1/ward.py.
@@ -18,8 +19,11 @@ class WardApi {
     }
   }
 
+  // Available offline via the last-loaded copy (owner feedback, 2026-09-14)
+  // — creating/editing a patient or task still requires being online. See
+  // core/network/offline_cache.dart.
   Future<Shift?> getShift() {
-    return _call(() => _dio.get('/ward/shift'), (data) => data == null ? null : Shift.fromJson(data as Map<String, dynamic>));
+    return cachedApiGet(_dio, '/ward/shift', 'ward_shift', (data) => data == null ? null : Shift.fromJson(data as Map<String, dynamic>));
   }
 
   Future<Shift> startShift({
@@ -46,8 +50,10 @@ class WardApi {
   }
 
   Future<List<Patient>> listPatients() {
-    return _call(
-      () => _dio.get('/ward/patients'),
+    return cachedApiGet(
+      _dio,
+      '/ward/patients',
+      'ward_patients',
       (data) => (data as List<dynamic>).map((e) => Patient.fromJson(e as Map<String, dynamic>)).toList(),
     );
   }
@@ -91,8 +97,10 @@ class WardApi {
   }
 
   Future<List<WardTask>> listTasks() {
-    return _call(
-      () => _dio.get('/ward/tasks'),
+    return cachedApiGet(
+      _dio,
+      '/ward/tasks',
+      'ward_tasks',
       (data) => (data as List<dynamic>).map((e) => WardTask.fromJson(e as Map<String, dynamic>)).toList(),
     );
   }

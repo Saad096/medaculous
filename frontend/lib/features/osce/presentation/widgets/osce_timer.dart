@@ -230,6 +230,10 @@ class _OsceTimerState extends State<OsceTimer> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _reset,
+                  // Default OutlinedButton padding left too little room for
+                  // "Reset" plus its icon in this 3-way split row, clipping
+                  // the trailing "t" (owner feedback, 2026-09-14).
+                  style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 4)),
                   icon: const Icon(Icons.replay_rounded, size: 16),
                   label: const Text('Reset'),
                 ),

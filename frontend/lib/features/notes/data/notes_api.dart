@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/offline_cache.dart';
 import '../domain/note.dart';
 
 /// Thin wrapper over backend/app/api/v1/notes.py.
@@ -21,9 +22,14 @@ class NotesApi {
     }
   }
 
+  // Available offline via the last-loaded copy — owner feedback, 2026-09-14.
+  // Only reads: creating/editing a note still requires being online. See
+  // core/network/offline_cache.dart.
   Future<List<Folder>> listFolders() {
-    return _call(
-      () => _dio.get('/notes/folders'),
+    return cachedApiGet(
+      _dio,
+      '/notes/folders',
+      'notes_folders',
       (data) => (data as List<dynamic>)
           .map((e) => Folder.fromJson(e as Map<String, dynamic>))
           .toList(),
@@ -94,14 +100,14 @@ class NotesApi {
   }
 
   Future<List<Note>> listNotes({String? folderId}) {
-    return _call(
-      () => _dio.get(
-        '/notes',
-        queryParameters: folderId != null ? {'folder_id': folderId} : null,
-      ),
+    return cachedApiGet(
+      _dio,
+      '/notes',
+      'notes_list_${folderId ?? 'all'}',
       (data) => (data as List<dynamic>)
           .map((e) => Note.fromJson(e as Map<String, dynamic>))
           .toList(),
+      queryParameters: folderId != null ? {'folder_id': folderId} : null,
     );
   }
 
